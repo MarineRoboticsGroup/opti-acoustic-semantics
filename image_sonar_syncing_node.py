@@ -16,7 +16,18 @@ from std_msgs.msg import Int32, Float32
 
 
 bridge = CvBridge()
-""" taken from https://stackoverflow.com/questions/15008758/parsing-boolean-values-with-argparse"""
+
+# some util functions, probably should move into a utils file
+def cart2pol(x, y):
+    rho = np.sqrt(x**2 + y**2)
+    phi = np.arctan2(y, x)
+    return(rho, phi)
+
+def pol2cart(rho, phi):
+    x = rho * np.cos(phi)
+    y = rho * np.sin(phi)
+    return(x, y)
+
 def str2bool(v):
     if isinstance(v, bool):
         return v
@@ -45,7 +56,7 @@ def image_sonar_callback(image_msg, sonar_msg):
         
         ims_pil = [im_pil] # list for future extension to cosegmentation of multiple images
     
-        seg_masks, pil_images = find_cosegmentation_ros(ims_pil, args.elbow, args.load_size, args.layer,
+        seg_masks, pil_images, centroids = find_cosegmentation_ros(ims_pil, args.elbow, args.load_size, args.layer,
                                                     args.facet, args.bin, args.thresh, args.model_type, args.stride,
                                                     args.votes_percentage, args.sample_interval,
                                                     args.remove_outliers, args.outliers_thresh,

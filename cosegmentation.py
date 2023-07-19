@@ -16,7 +16,7 @@ def find_cosegmentation_ros(imgs: List[Image.Image], elbow: float = 0.975, load_
                         facet: str = 'key', bin: bool = False, thresh: float = 0.065, model_type: str = 'dino_vits8',
                         stride: int = 8, votes_percentage: int = 75, sample_interval: int = 100,
                         remove_outliers: bool = False, outliers_thresh: float = 0.7, low_res_saliency_maps: bool = True,
-                        save_dir: str = None) -> Tuple[List[Image.Image], List[Image.Image]]:
+                        save_dir: str = None) -> Tuple[List[Image.Image], List[Image.Image], List[Tuple(int, int)]]:
     """
     finding cosegmentation of a set of images.
     :param imgs: a list of all the images in Pil format.
@@ -141,6 +141,7 @@ def find_cosegmentation_ros(imgs: List[Image.Image], elbow: float = 0.975, load_
         if (len(sum_of_squared_dists) > 1 and sum_of_squared_dists[-1] > elbow * sum_of_squared_dists[-2]):
             break
 
+    centroids = algorithm.centroids
     num_labels = np.max(n_clusters) + 1
     num_descriptors_per_image = [num_patches[0]*num_patches[1] for num_patches in num_patches_list]
     labels_per_image = np.split(labels, np.cumsum(num_descriptors_per_image))
@@ -206,7 +207,7 @@ def find_cosegmentation_ros(imgs: List[Image.Image], elbow: float = 0.975, load_
     #     segmentation_masks = final_segmentation_masks
     #     image_pil_list = final_pil_images
 
-    return segmentation_masks, image_pil_list
+    return segmentation_masks, image_pil_list, centroids # TODO make sure we're only taking centroids from foreground clusters, double check centroid format
 
 
 def draw_cosegmentation(segmentation_masks: List[Image.Image], pil_images: List[Image.Image]) -> List[plt.Figure]:
