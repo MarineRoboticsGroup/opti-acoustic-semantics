@@ -89,9 +89,9 @@ if __name__ == "__main__":
     image_sub = message_filters.Subscriber(image_topic, RosImageCompressed)
     sonar_sub = message_filters.Subscriber(sonar_topic, )
 
-ts = message_filters.ApproximateTimeSynchronizer([image_sub, sonar_sub], 10, 0.1, allow_headerless=True)
-ts.registerCallback(image_sonar_callback)
-rospy.spin()
+    ts = message_filters.ApproximateTimeSynchronizer([image_sub, sonar_sub], 10, 0.1, allow_headerless=True)
+    ts.registerCallback(image_sonar_callback)
+
     print("STARTED SUBSCRIBER!")
 
     parser = argparse.ArgumentParser(description='Facilitate ViT Descriptor cosegmentations.')
