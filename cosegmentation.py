@@ -16,7 +16,7 @@ def find_cosegmentation_ros(imgs: List[Image.Image], elbow: float = 0.975, load_
                         facet: str = 'key', bin: bool = False, thresh: float = 0.065, model_type: str = 'dino_vits8',
                         stride: int = 8, votes_percentage: int = 75, sample_interval: int = 100,
                         remove_outliers: bool = False, outliers_thresh: float = 0.7, low_res_saliency_maps: bool = True,
-                        save_dir: str = None) -> Tuple[List[Image.Image], List[Image.Image], List[Tuple(int, int)]]:
+                        save_dir: str = None) -> Tuple[List[Image.Image], List[Image.Image], List[Tuple[int, int]], List[Tuple[float, float]], List[int]]:
     """
     finding cosegmentation of a set of images.
     :param imgs: a list of all the images in Pil format.
@@ -35,7 +35,8 @@ def find_cosegmentation_ros(imgs: List[Image.Image], elbow: float = 0.975, load_
     :param low_res_saliency_maps: Use saliency maps with lower resolution (dramatically reduces GPU RAM needs,
     doesn't deteriorate performance).
     :param save_dir: optional. if not None save intermediate results in this directory.
-    :return: a list of segmentation masks and a list of processed pil images.
+    :return: a list of segmentation masks, a list of processed pil images, a list of centroids in the feature space, 
+    a list of centroids as a fraction of distance across image, the cluster labels (TODO make this work for multiple images)
     """
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     extractor = ViTExtractor(model_type, stride, device=device)
@@ -146,13 +147,34 @@ def find_cosegmentation_ros(imgs: List[Image.Image], elbow: float = 0.975, load_
     num_descriptors_per_image = [num_patches[0]*num_patches[1] for num_patches in num_patches_list]
     labels_per_image = np.split(labels, np.cumsum(num_descriptors_per_image))
 
-    if save_dir is not None:
+    if True:#save_dir is not None:
+        reshaped_labels = None
         cmap = 'jet' if num_labels > 10 else 'tab10'
         for img, num_patches, label_per_image in zip(imgs, num_patches_list, labels_per_image):
             fig, ax = plt.subplots()
             ax.axis('off')
-            ax.imshow(label_per_image.reshape(num_patches), vmin=0, vmax=num_labels-1, cmap=cmap)
-            fig.savefig(save_dir / f'{Path(image_path).stem}_clustering.png', bbox_inches='tight', pad_inches=0)
+            print(label_per_image.shape)
+            print(label_per_image.reshape(num_patches))
+            reshaped_labels = label_per_image.reshape(num_patches)
+            ax.imshow(reshaped_labels, vmin=0, vmax=num_labels-1, cmap=cmap)
+            if save_dir is not None:
+                fig.savefig(save_dir / f'{Path(image_path).stem}_clustering.png', bbox_inches='tight', pad_inches=0)
+            
+            # compute centroids in patch space
+            pos_centroids_sum = np.zeros((num_labels, 3))
+            for x_idx, ys in enumerate(reshaped_labels):
+                for y_idx, val in enumerate(ys):
+                    pos_centroids_sum[val][0] += x_idx
+                    pos_centroids_sum[val][1] += y_idx
+                    pos_centroids_sum[val][2] += 1
+            pos_centroids = pos_centroids_sum / pos_centroids_sum[:, 2][:, None]
+            pos_centroids = np.delete(pos_centroids, -1, 0) # remove count column
+            pos_centroids = np.delete(pos_centroids, -1, 1) # remove last row (not an object)
+
+            print(pos_centroids)
+            print(num_patches)
+            pos_centroids[:, 0] /= num_patches[0]
+            pos_centroids[:, 1] /= num_patches[1]
             plt.close(fig)
 
     # use saliency maps to vote for salient clusters
@@ -207,7 +229,7 @@ def find_cosegmentation_ros(imgs: List[Image.Image], elbow: float = 0.975, load_
     #     segmentation_masks = final_segmentation_masks
     #     image_pil_list = final_pil_images
 
-    return segmentation_masks, image_pil_list, centroids # TODO make sure we're only taking centroids from foreground clusters, double check centroid format
+    return segmentation_masks, image_pil_list, centroids, pos_centroids, reshaped_labels # TODO make sure we're only taking centroids from foreground clusters, double check centroid format
 
 
 def draw_cosegmentation(segmentation_masks: List[Image.Image], pil_images: List[Image.Image]) -> List[plt.Figure]:

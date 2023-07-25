@@ -9,11 +9,14 @@ from PIL import Image
 from cosegmentation import find_cosegmentation_ros, draw_cosegmentation_binary_masks, draw_cosegmentation
 import torch
 import io
+from matplotlib import cm
 
 import message_filters
 from std_msgs.msg import Int32, Float32
+from sonar_oculus.msg import OculusPing
 
 
+CAM_FOV = None # degrees, set in main
 
 bridge = CvBridge()
 
@@ -51,26 +54,28 @@ def image_sonar_callback(image_msg, sonar_msg):
     
     with torch.no_grad():
 
-        im_pil = Image.open(io.BytesIO(bytearray(msg.data)))
+        im_pil = Image.open(io.BytesIO(bytearray(image_msg.data)))
         # computing cosegmentation
         
         ims_pil = [im_pil] # list for future extension to cosegmentation of multiple images
     
-        seg_masks, pil_images, centroids = find_cosegmentation_ros(ims_pil, args.elbow, args.load_size, args.layer,
+        seg_masks, pil_images, centroids, pos_centroids, clustered_arrays = find_cosegmentation_ros(ims_pil, args.elbow, args.load_size, args.layer,
                                                     args.facet, args.bin, args.thresh, args.model_type, args.stride,
                                                     args.votes_percentage, args.sample_interval,
                                                     args.remove_outliers, args.outliers_thresh,
                                                     args.low_res_saliency_maps)#, curr_save_dir)
-
+        
         # saving cosegmentations
         binary_mask_figs = draw_cosegmentation_binary_masks(seg_masks)
         chessboard_bg_figs = draw_cosegmentation(seg_masks, pil_images)
 
 
-
     image_pub = rospy.Publisher("/kelpie/img_segmented", RosImage, queue_size=10)
     
-    im = seg_masks[0].convert('RGB') # assuming single image only in list
+    #im = seg_masks[0].convert('RGB') # assuming single image only in list
+    normalizedClusters = (clustered_arrays-np.min(clustered_arrays))/(np.max(clustered_arrays)-np.min(clustered_arrays))
+    im = Image.fromarray(np.uint8(cm.jet(normalizedClusters)*255))
+    im = im.convert('RGB')
 
     msg = RosImage()
     msg.header.stamp = rospy.Time.now()
@@ -95,10 +100,10 @@ def image_sonar_callback(image_msg, sonar_msg):
 if __name__ == "__main__":
     rospy.init_node('img_segmentation_node')
     image_topic = "/usb_cam/image_raw/compressed"
-    sonar_topic = "/kelpie/sonar"
+    sonar_topic = "/sonar_horizontal/oculus_node/ping"
 
     image_sub = message_filters.Subscriber(image_topic, RosImageCompressed)
-    sonar_sub = message_filters.Subscriber(sonar_topic, )
+    sonar_sub = message_filters.Subscriber(sonar_topic, OculusPing)
 
     ts = message_filters.ApproximateTimeSynchronizer([image_sub, sonar_sub], 10, 0.1, allow_headerless=True)
     ts.registerCallback(image_sonar_callback)
@@ -125,14 +130,17 @@ if __name__ == "__main__":
     parser.add_argument('--elbow', default=0.975, type=float, help='Elbow coefficient for setting number of clusters.')
     parser.add_argument('--votes_percentage', default=75, type=int, help="percentage of votes needed for a cluster to "
                                                                          "be considered salient.")
-    parser.add_argument('--sample_interval', default=100, type=int, help="sample every ith descriptor for training"
+    parser.add_argument('--sample_interval', default=10, type=int, help="sample every ith descriptor for training"
                                                                          "clustering.")
     parser.add_argument('--remove_outliers', default='False', type=str2bool, help="Remove outliers using cls token.")
     parser.add_argument('--outliers_thresh', default=0.7, type=float, help="Threshold for removing outliers.")
     parser.add_argument('--low_res_saliency_maps', default='True', type=str2bool, help="using low resolution saliency "
                                                                                        "maps. Reduces RAM needs.")
+    parser.add_argument('--cam_fov', default=80, type=int, help="Camera field of view in degrees.")
 
     args = parser.parse_args()
+    
+    CAM_FOV = args.cam_fov
 
 
     rospy.spin()
