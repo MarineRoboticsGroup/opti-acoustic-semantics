@@ -1,8 +1,15 @@
 from cv_bridge import CvBridge, CvBridgeError
 import cv2
+
 import rospy
 from sensor_msgs.msg import CompressedImage as RosImageCompressed
 from sensor_msgs.msg import Image as RosImage
+import tf2_ros
+import tf2_py
+import message_filters
+from std_msgs.msg import Int32, Float32
+from sonar_oculus.msg import OculusPing
+
 import numpy as np
 import argparse
 from PIL import Image
@@ -11,12 +18,14 @@ import torch
 import io
 from matplotlib import cm
 
-import message_filters
-from std_msgs.msg import Int32, Float32
-from sonar_oculus.msg import OculusPing
+
 
 
 CAM_FOV = None # degrees, set in main
+CAM_TO_SONAR_TF = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0]]) # set in main
+
+
+
 
 bridge = CvBridge()
 
@@ -72,7 +81,10 @@ def image_sonar_callback(image_msg, sonar_msg):
 
     image_pub = rospy.Publisher("/kelpie/img_segmented", RosImage, queue_size=10)
     
+    # for publisihing segmentation masks (fg/bg)
     #im = seg_masks[0].convert('RGB') # assuming single image only in list
+    
+    # for publishing cluster images
     normalizedClusters = (clustered_arrays-np.min(clustered_arrays))/(np.max(clustered_arrays)-np.min(clustered_arrays))
     im = Image.fromarray(np.uint8(cm.jet(normalizedClusters)*255))
     im = im.convert('RGB')
@@ -107,13 +119,22 @@ if __name__ == "__main__":
 
     ts = message_filters.ApproximateTimeSynchronizer([image_sub, sonar_sub], 10, 0.1, allow_headerless=True)
     ts.registerCallback(image_sonar_callback)
+    
+    tfBuffer = tf2_ros.Buffer()
+    listener = tf2_ros.TransformListener(tfBuffer)
 
+    trans = tfBuffer.lookup_transform('sonar_horizontal', 'usb_cam', rospy.Time(0), rospy.Duration(1))
+    CAM_TO_SONAR_TF = trans
+
+    
+    
+    
     print("STARTED SUBSCRIBER!")
 
     parser = argparse.ArgumentParser(description='Facilitate ViT Descriptor cosegmentations.')
     # parser.add_argument('--root_dir', type=str, required=True, help='The root dir of image sets.')
     # parser.add_argument('--save_dir', type=str, required=True, help='The root save dir for image sets results.')
-    parser.add_argument('--load_size', default=224, type=int, help='load size of the input images. If None maintains'
+    parser.add_argument('--load_size', default=360, type=int, help='load size of the input images. If None maintains'
                                                                     'original image size, if int resizes each image'
                                                                     'such that the smaller side is this number.')
     parser.add_argument('--stride', default=8, type=int, help="""stride of first convolution layer. 

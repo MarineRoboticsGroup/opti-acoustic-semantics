@@ -147,35 +147,6 @@ def find_cosegmentation_ros(imgs: List[Image.Image], elbow: float = 0.975, load_
     num_descriptors_per_image = [num_patches[0]*num_patches[1] for num_patches in num_patches_list]
     labels_per_image = np.split(labels, np.cumsum(num_descriptors_per_image))
 
-    if True:#save_dir is not None:
-        reshaped_labels = None
-        cmap = 'jet' if num_labels > 10 else 'tab10'
-        for img, num_patches, label_per_image in zip(imgs, num_patches_list, labels_per_image):
-            fig, ax = plt.subplots()
-            ax.axis('off')
-            print(label_per_image.shape)
-            print(label_per_image.reshape(num_patches))
-            reshaped_labels = label_per_image.reshape(num_patches)
-            ax.imshow(reshaped_labels, vmin=0, vmax=num_labels-1, cmap=cmap)
-            if save_dir is not None:
-                fig.savefig(save_dir / f'{Path(image_path).stem}_clustering.png', bbox_inches='tight', pad_inches=0)
-            
-            # compute centroids in patch space
-            pos_centroids_sum = np.zeros((num_labels, 3))
-            for x_idx, ys in enumerate(reshaped_labels):
-                for y_idx, val in enumerate(ys):
-                    pos_centroids_sum[val][0] += x_idx
-                    pos_centroids_sum[val][1] += y_idx
-                    pos_centroids_sum[val][2] += 1
-            pos_centroids = pos_centroids_sum / pos_centroids_sum[:, 2][:, None]
-            pos_centroids = np.delete(pos_centroids, -1, 0) # remove count column
-            pos_centroids = np.delete(pos_centroids, -1, 1) # remove last row (not an object)
-
-            print(pos_centroids)
-            print(num_patches)
-            pos_centroids[:, 0] /= num_patches[0]
-            pos_centroids[:, 1] /= num_patches[1]
-            plt.close(fig)
 
     # use saliency maps to vote for salient clusters
     votes = np.zeros(num_labels)
@@ -185,6 +156,36 @@ def find_cosegmentation_ros(imgs: List[Image.Image], elbow: float = 0.975, load_
             if label_saliency > thresh:
                 votes[label] += 1
     salient_labels = np.where(votes >= np.ceil(num_images * votes_percentage / 100))
+    
+    # cluster saliency filtering and visualization
+    reshaped_labels = None
+    cmap = 'jet' if num_labels > 10 else 'tab10'
+    for img, num_patches, label_per_image in zip(imgs, num_patches_list, labels_per_image):
+        print(label_per_image.shape)
+        print(salient_labels.shape)
+        print(label_per_image.reshape(num_patches))
+        reshaped_labels = label_per_image.reshape(num_patches)
+        saliency_mask = np.isin(label_per_image, salient_labels).reshape(num_patches)
+        salient_reshaped_labels = reshaped_labels * saliency_mask
+        print(salient_reshaped_labels) # TODO make sure this is correct, feed into next block of code 
+        
+        
+        # compute centroids in patch space
+        pos_centroids_sum = np.zeros((num_labels, 3))
+        for x_idx, ys in enumerate(reshaped_labels):
+            for y_idx, val in enumerate(ys):
+                pos_centroids_sum[val][0] += x_idx
+                pos_centroids_sum[val][1] += y_idx
+                pos_centroids_sum[val][2] += 1  # count for normalization
+        pos_centroids = pos_centroids_sum / pos_centroids_sum[:, 2][:, None]
+        pos_centroids = np.delete(pos_centroids, -1, 0) # remove count column
+        pos_centroids = np.delete(pos_centroids, -1, 1) # remove last row (not an object)
+
+        print(pos_centroids)
+        print(num_patches)
+        pos_centroids[:, 0] /= num_patches[0]
+        pos_centroids[:, 1] /= num_patches[1]
+    
     # create masks using the salient labels
     segmentation_masks = []
     for img, labels, num_patches, load_size in zip(image_pil_list, labels_per_image, num_patches_list, load_size_list):
