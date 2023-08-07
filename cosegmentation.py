@@ -161,14 +161,10 @@ def find_cosegmentation_ros(imgs: List[Image.Image], elbow: float = 0.975, load_
     reshaped_labels = None
     cmap = 'jet' if num_labels > 10 else 'tab10'
     for img, num_patches, label_per_image in zip(imgs, num_patches_list, labels_per_image):
-        print(label_per_image.shape)
-        print(salient_labels.shape)
-        print(label_per_image.reshape(num_patches))
         reshaped_labels = label_per_image.reshape(num_patches)
+        reshaped_labels += 1 # shift everything up so that 0 is background 
         saliency_mask = np.isin(label_per_image, salient_labels).reshape(num_patches)
-        salient_reshaped_labels = reshaped_labels * saliency_mask
-        print(salient_reshaped_labels) # TODO make sure this is correct, feed into next block of code 
-        
+        salient_reshaped_labels = reshaped_labels * saliency_mask # set non-salient labels to 0
         
         # compute centroids in patch space
         pos_centroids_sum = np.zeros((num_labels, 3))
@@ -178,8 +174,8 @@ def find_cosegmentation_ros(imgs: List[Image.Image], elbow: float = 0.975, load_
                 pos_centroids_sum[val][1] += y_idx
                 pos_centroids_sum[val][2] += 1  # count for normalization
         pos_centroids = pos_centroids_sum / pos_centroids_sum[:, 2][:, None]
-        pos_centroids = np.delete(pos_centroids, -1, 0) # remove count column
-        pos_centroids = np.delete(pos_centroids, -1, 1) # remove last row (not an object)
+        pos_centroids = np.delete(pos_centroids, 0, 0) # remove first row (non-salient clusters). Note this resets the labels to start at 0
+        pos_centroids = np.delete(pos_centroids, -1, 1) # remove count column 
 
         print(pos_centroids)
         print(num_patches)
@@ -230,7 +226,7 @@ def find_cosegmentation_ros(imgs: List[Image.Image], elbow: float = 0.975, load_
     #     segmentation_masks = final_segmentation_masks
     #     image_pil_list = final_pil_images
 
-    return segmentation_masks, image_pil_list, centroids, pos_centroids, reshaped_labels # TODO make sure we're only taking centroids from foreground clusters, double check centroid format
+    return segmentation_masks, image_pil_list, centroids, pos_centroids, salient_reshaped_labels # TODO make sure we're only taking centroids from foreground clusters, double check centroid format
 
 
 def draw_cosegmentation(segmentation_masks: List[Image.Image], pil_images: List[Image.Image]) -> List[plt.Figure]:

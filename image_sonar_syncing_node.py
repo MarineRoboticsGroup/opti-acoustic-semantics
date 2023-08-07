@@ -5,7 +5,8 @@ import rospy
 from sensor_msgs.msg import CompressedImage as RosImageCompressed
 from sensor_msgs.msg import Image as RosImage
 import tf2_ros
-import tf2_py
+#import tf2_geometry_msgs
+
 import message_filters
 from std_msgs.msg import Int32, Float32
 from sonar_oculus.msg import OculusPing
@@ -21,9 +22,12 @@ from matplotlib import cm
 
 
 
-CAM_FOV = None # degrees, set in main
-CAM_TO_SONAR_TF = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0]]) # set in main
+CAM_FOV = 80 # degrees, set in main
+CAM_TO_SONAR_TF = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0]]) # set in main
+SONAR_TO_CAM_TF = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0]]) # set in main
+THRESHOLD = 0
 
+to_rad = lambda bearing: bearing * np.pi / 18000
 
 
 
@@ -50,11 +54,48 @@ def str2bool(v):
     else:
         raise argparse.ArgumentTypeError('Boolean value expected.')
 
+def ping_to_range(msg: OculusPing, angle: float) -> float:
+    """
+    Convert sonar ping to range (take most intense return on beam) at given angle.
+    """
+    img = bridge.imgmsg_to_cv2(msg.ping, desired_encoding="passthrough")
+    
+    # pre-process ping
+    #ping = self.sonar.deconvolve(img)
+    ping = img
+
+    res = msg.range_resolution
+    r = np.linspace(0, msg.fire_msg.range,num=msg.num_ranges)
+    az = to_rad(np.asarray(msg.bearings, dtype=np.float32))
+
+    # image is num_ranges x num_beams
+    for beam in range(0, len(az)):
+        if (az[beam] >= angle - res/2) and (az[beam] <= angle + res/2):
+            idx = np.argmax(ping[:, beam])
+            if ping[idx, beam] > THRESHOLD:
+                # beam range
+                br = idx*msg.range_resolution
+                return br
+            else:
+                return br # TODO: return NaN or something else, integrate with gapslam 
+        # idx = np.argmax(ping[:, beam])
+        # if ping[idx, beam] > self.threshold:
+        #     # beam range
+        #     br = idx*msg.range_resolution
+        #     # beam azimuth
+        #     ba = -az[beam] # TODO: confirm
+        #     pt = Point()
+        #     pt.x = br*np.cos(ba)
+        #     pt.y = br*np.sin(ba) 
+        #     pt.z = 0.0
+        #     if (br <= self.gate_high) and (br >= self.gate_low):
+        #       cloud_msg.points.append(pt)
+
 
 def image_sonar_callback(image_msg, sonar_msg):
       # print(data.encoding)
     # try:
-    #     cv_image = bridge.imgmsg_to_cv2(data, "32FC1")
+    #     cv_image = bridge.imgmsg_to_cvtf2_py.2(data, "32FC1")
     # except CvBridgeError as e:
     #     print(e)
     
@@ -79,10 +120,35 @@ def image_sonar_callback(image_msg, sonar_msg):
         chessboard_bg_figs = draw_cosegmentation(seg_masks, pil_images)
 
 
-    image_pub = rospy.Publisher("/kelpie/img_segmented", RosImage, queue_size=10)
+    # transform clusters into sonar frame
+    # TODO for now just assume sonar and camera colocated 
     
-    # for publisihing segmentation masks (fg/bg)
-    #im = seg_masks[0].convert('RGB') # assuming single image only in list
+    # get sonar range for each cluster
+
+    for centroid in pos_centroids:
+        bearing = centroid[0] * CAM_FOV
+        print(bearing) 
+        range = ping_to_range(sonar_msg, bearing)
+        print(range)
+    
+    # publish 3D positions of cluster centroids 
+
+
+    cluster_img_pub = rospy.Publisher("/usb_cam/img_segmented", RosImage, queue_size=10)
+    fg_bg_img_pub = rospy.Publisher("/usb_cam/img_fg_bg", RosImage, queue_size=10)
+    
+    # for publishing segmentation masks (fg/bg)
+    im_mask = seg_masks[0].convert('RGB') # assuming single image only in list
+    msg_mask = RosImage()
+    msg_mask.header.stamp = rospy.Time.now()
+    msg_mask.height = im_mask.height
+    msg_mask.width = im_mask.width
+    msg_mask.encoding = "rgb8"
+    msg_mask.is_bigendian = False
+    msg_mask.step = 3 * im_mask.width
+    msg_mask.data = np.array(im_mask).tobytes()
+
+    fg_bg_img_pub.publish(msg_mask)    
     
     # for publishing cluster images
     normalizedClusters = (clustered_arrays-np.min(clustered_arrays))/(np.max(clustered_arrays)-np.min(clustered_arrays))
@@ -98,7 +164,7 @@ def image_sonar_callback(image_msg, sonar_msg):
     msg.step = 3 * im.width
     msg.data = np.array(im).tobytes()
 
-    image_pub.publish(msg)
+    cluster_img_pub.publish(msg)
 
 
     # try:
@@ -123,8 +189,10 @@ if __name__ == "__main__":
     tfBuffer = tf2_ros.Buffer()
     listener = tf2_ros.TransformListener(tfBuffer)
 
-    trans = tfBuffer.lookup_transform('sonar_horizontal', 'usb_cam', rospy.Time(0), rospy.Duration(1))
-    CAM_TO_SONAR_TF = trans
+    SONAR_TO_CAM_TF = tfBuffer.lookup_transform('sonar_horizontal', 'usb_cam', rospy.Time(0), rospy.Duration(1))
+    CAM_TO_SONAR_TF = tfBuffer.lookup_transform('usb_cam', 'sonar_horizontal', rospy.Time(0), rospy.Duration(1))
+    
+
 
     
     
