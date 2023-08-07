@@ -27,7 +27,7 @@ CAM_TO_SONAR_TF = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0]]) # set in mai
 SONAR_TO_CAM_TF = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0]]) # set in main
 THRESHOLD = 0
 
-to_rad = lambda bearing: bearing * np.pi / 18000
+to_rad = lambda bearing: bearing * np.pi / 18000 # only use for ping message!!!!
 
 
 
@@ -56,6 +56,8 @@ def str2bool(v):
 
 def ping_to_range(msg: OculusPing, angle: float) -> float:
     """
+    msg: OculusPing message
+    angle: angle in degrees 
     Convert sonar ping to range (take most intense return on beam) at given angle.
     """
     img = bridge.imgmsg_to_cv2(msg.ping, desired_encoding="passthrough")
@@ -64,13 +66,15 @@ def ping_to_range(msg: OculusPing, angle: float) -> float:
     #ping = self.sonar.deconvolve(img)
     ping = img
 
-    res = msg.range_resolution
+    angle = angle * np.pi / 180 # convert to radians
+    angular_res = 2.268928027592628 / 512 # radians for oculus m1200d assuming even spacing TODO angles aren't evenly spaced for oculus
     r = np.linspace(0, msg.fire_msg.range,num=msg.num_ranges)
     az = to_rad(np.asarray(msg.bearings, dtype=np.float32))
 
     # image is num_ranges x num_beams
     for beam in range(0, len(az)):
-        if (az[beam] >= angle - res/2) and (az[beam] <= angle + res/2):
+        if (az[beam] >= angle - angular_res/2) and (az[beam] <= angle + angular_res/2):
+            print(az[beam], angle, angular_res/2)
             idx = np.argmax(ping[:, beam])
             if ping[idx, beam] > THRESHOLD:
                 # beam range
