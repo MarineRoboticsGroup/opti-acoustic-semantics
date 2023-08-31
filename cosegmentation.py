@@ -12,7 +12,7 @@ import cv2
 from typing import List, Tuple
 
 
-def find_cosegmentation_ros(imgs: List[Image.Image], elbow: float = 0.975, load_size: int = 224, layer: int = 11, # TODO extend to multiple images (can we leverage cosegmentation?)
+def find_cosegmentation_ros(extractor: ViTExtractor, saliency_extractor: ViTExtractor, imgs: List[Image.Image], elbow: float = 0.975, load_size: int = 224, layer: int = 11, # TODO extend to multiple images (can we leverage cosegmentation?)
                         facet: str = 'key', bin: bool = False, thresh: float = 0.065, model_type: str = 'dino_vits8',
                         stride: int = 8, votes_percentage: int = 75, sample_interval: int = 100,
                         remove_outliers: bool = False, outliers_thresh: float = 0.7, low_res_saliency_maps: bool = True,
@@ -39,16 +39,16 @@ def find_cosegmentation_ros(imgs: List[Image.Image], elbow: float = 0.975, load_
     a list of centroids as a fraction of distance across image, the cluster labels (TODO make this work for multiple images)
     """
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    extractor = ViTExtractor(model_type, stride, device=device)
+    # extractor = ViTExtractor(model_type, stride, device=device)
     descriptors_list = []
     saliency_maps_list = []
     image_pil_list = []
     num_patches_list = []
     load_size_list = []
-    if low_res_saliency_maps:
-        saliency_extractor = ViTExtractor(model_type, stride=8, device=device)
-    else:
-        saliency_extractor = extractor
+    # if low_res_saliency_maps:
+    #     saliency_extractor = ViTExtractor(model_type, stride=8, device=device)
+    # else:
+    #     saliency_extractor = extractor
     if remove_outliers:
         cls_descriptors = []
     num_images = len(imgs)

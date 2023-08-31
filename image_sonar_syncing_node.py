@@ -18,20 +18,18 @@ from cosegmentation import find_cosegmentation_ros, draw_cosegmentation_binary_m
 import torch
 import io
 from matplotlib import cm
+from extractor import ViTExtractor
 
 
 
 
-CAM_FOV = 80 # degrees, set in main
-CAM_TO_SONAR_TF = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0]]) # set in main
-SONAR_TO_CAM_TF = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0]]) # set in main
+# CAM_FOV = 80 # degrees, set in main
+# CAM_TO_SONAR_TF = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0]]) # set in main
+# SONAR_TO_CAM_TF = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0]]) # set in main
 THRESHOLD = 0
 
 to_rad = lambda bearing: bearing * np.pi / 18000 # only use for ping message!!!!
 
-
-
-bridge = CvBridge()
 
 # some util functions, probably should move into a utils file
 def cart2pol(x, y):
@@ -97,6 +95,7 @@ def ping_to_range(msg: OculusPing, angle: float) -> float:
 
 
 def image_sonar_callback(image_msg, sonar_msg):
+    # global extractor, saliency_extractor, args, bridge, CAM_FOV, CAM_TO_SONAR_TF, SONAR_TO_CAM_TF
       # print(data.encoding)
     # try:
     #     cv_image = bridge.imgmsg_to_cvtf2_py.2(data, "32FC1")
@@ -113,7 +112,7 @@ def image_sonar_callback(image_msg, sonar_msg):
         
         ims_pil = [im_pil] # list for future extension to cosegmentation of multiple images
     
-        seg_masks, pil_images, centroids, pos_centroids, clustered_arrays = find_cosegmentation_ros(ims_pil, args.elbow, args.load_size, args.layer,
+        seg_masks, pil_images, centroids, pos_centroids, clustered_arrays = find_cosegmentation_ros(extractor, saliency_extractor, ims_pil, args.elbow, args.load_size, args.layer,
                                                     args.facet, args.bin, args.thresh, args.model_type, args.stride,
                                                     args.votes_percentage, args.sample_interval,
                                                     args.remove_outliers, args.outliers_thresh,
@@ -136,6 +135,7 @@ def image_sonar_callback(image_msg, sonar_msg):
         print(range)
     
     # publish 3D positions of cluster centroids 
+    # TODO what does DCSAM want for message type?
 
 
     cluster_img_pub = rospy.Publisher("/usb_cam/img_segmented", RosImage, queue_size=10)
@@ -181,27 +181,6 @@ def image_sonar_callback(image_msg, sonar_msg):
 
 if __name__ == "__main__":
     rospy.init_node('img_segmentation_node')
-    image_topic = "/usb_cam/image_raw/compressed"
-    sonar_topic = "/sonar_horizontal/oculus_node/ping"
-
-    image_sub = message_filters.Subscriber(image_topic, RosImageCompressed)
-    sonar_sub = message_filters.Subscriber(sonar_topic, OculusPing)
-
-    ts = message_filters.ApproximateTimeSynchronizer([image_sub, sonar_sub], 10, 0.1, allow_headerless=True)
-    ts.registerCallback(image_sonar_callback)
-    
-    tfBuffer = tf2_ros.Buffer()
-    listener = tf2_ros.TransformListener(tfBuffer)
-
-    SONAR_TO_CAM_TF = tfBuffer.lookup_transform('sonar_horizontal', 'usb_cam', rospy.Time(0), rospy.Duration(1))
-    CAM_TO_SONAR_TF = tfBuffer.lookup_transform('usb_cam', 'sonar_horizontal', rospy.Time(0), rospy.Duration(1))
-    
-
-
-    
-    
-    
-    print("STARTED SUBSCRIBER!")
 
     parser = argparse.ArgumentParser(description='Facilitate ViT Descriptor cosegmentations.')
     # parser.add_argument('--root_dir', type=str, required=True, help='The root dir of image sets.')
@@ -234,6 +213,32 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     CAM_FOV = args.cam_fov
+    
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    extractor = ViTExtractor(args.model_type, args.stride, device=device)
+    if args.low_res_saliency_maps:
+        saliency_extractor = ViTExtractor(args.model_type, stride=8, device=device)
+    else:
+        saliency_extractor = extractor
+    bridge = CvBridge()
+    
+    image_topic = "/usb_cam/image_raw/compressed"
+    sonar_topic = "/sonar_horizontal/oculus_node/ping"
+
+    image_sub = message_filters.Subscriber(image_topic, RosImageCompressed)
+    sonar_sub = message_filters.Subscriber(sonar_topic, OculusPing)
+
+    ts = message_filters.ApproximateTimeSynchronizer([image_sub, sonar_sub], 10, 0.1, allow_headerless=True)
+    ts.registerCallback(image_sonar_callback)
+    
+    tfBuffer = tf2_ros.Buffer()
+    listener = tf2_ros.TransformListener(tfBuffer)
+
+    SONAR_TO_CAM_TF = tfBuffer.lookup_transform('sonar_horizontal', 'usb_cam', rospy.Time(0), rospy.Duration(1))
+    CAM_TO_SONAR_TF = tfBuffer.lookup_transform('usb_cam', 'sonar_horizontal', rospy.Time(0), rospy.Duration(1))
+    
+    
+    print("STARTED SUBSCRIBER!")
 
 
     rospy.spin()

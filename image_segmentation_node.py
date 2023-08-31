@@ -1,17 +1,39 @@
 from cv_bridge import CvBridge, CvBridgeError
 import cv2
+
 import rospy
 from sensor_msgs.msg import CompressedImage as RosImageCompressed
 from sensor_msgs.msg import Image as RosImage
+import tf2_ros
+#import tf2_geometry_msgs
+
+import message_filters
+from std_msgs.msg import Int32, Float32
+from sensor_msgs.msg import CameraInfo
+
 import numpy as np
 import argparse
 from PIL import Image
 from cosegmentation import find_cosegmentation_ros, draw_cosegmentation_binary_masks, draw_cosegmentation
 import torch
 import io
+from matplotlib import cm
+from extractor import ViTExtractor
 
-bridge = CvBridge()
-""" taken from https://stackoverflow.com/questions/15008758/parsing-boolean-values-with-argparse"""
+import pyrealsense2 as rs
+
+
+# some util functions, probably should move into a utils file
+def cart2pol(x, y):
+    rho = np.sqrt(x**2 + y**2)
+    phi = np.arctan2(y, x)
+    return(rho, phi)
+
+def pol2cart(rho, phi):
+    x = rho * np.cos(phi)
+    y = rho * np.sin(phi)
+    return(x, y)
+
 def str2bool(v):
     if isinstance(v, bool):
         return v
@@ -21,40 +43,101 @@ def str2bool(v):
         return False
     else:
         raise argparse.ArgumentTypeError('Boolean value expected.')
-
-
-def image_callback(msg):
-    # print(data.encoding)
-    # try:
-    #     cv_image = bridge.imgmsg_to_cv2(data, "32FC1")
-    # except CvBridgeError as e:
-    #     print(e)
     
-    # img = cv2.cvtColor(cv_image,cv2.COLOR_BGR2RGB)
-    #img2 = np.array(img, dtype=np.float32) 
+# Thanks Tim! 
+def unproject(
+    u,
+    v,
+    z,
+    K: np.ndarray,
+):
+    """
+    Given pixel coordinates (u, v) and depth z, return 3D point in camera frame
+    """
+    fx = K[0,0]
+    fy = K[1,1]
+    cx = K[0,2]
+    cy = K[1,2]
+    x = (u - cx) * z / fx
+    y = (v - cy) * z / fy
+    print(u,v)
+    print(fx, fy, cx, cy)
+    print(x, y, z)
+    return np.array([x, y, z])
+
+def image_depth_callback(image_msg, depth_msg):
+    # global extractor, saliency_extractor, args, bridge, CAM_FOV, CAM_TO_SONAR_TF, SONAR_TO_CAM_TF
+      # print(data.encoding)
+    try:
+        cv_image = bridge.imgmsg_to_cv2(image_msg, "passthrough")
+    except CvBridgeError as e:
+        print(e)
     
+    im_pil = Image.fromarray(cv_image)
+    im_pil.show()
+    
+    depth_image = bridge.imgmsg_to_cv2(depth_msg, "passthrough")
+    depth_array = np.array(depth_image, dtype=np.float32)
+
     with torch.no_grad():
-
-        im_pil = Image.open(io.BytesIO(bytearray(msg.data)))
-        # computing cosegmentation
         
+        # convert ROS Compressed image to PIL image
+        # im_pil = Image.open(io.BytesIO(bytearray(image_msg.data)))
+        # computing cosegmentation
         ims_pil = [im_pil] # list for future extension to cosegmentation of multiple images
     
-        seg_masks, pil_images = find_cosegmentation_ros(ims_pil, args.elbow, args.load_size, args.layer,
+        # pos centroids are as a fraction of the image size from top left
+        seg_masks, pil_images, centroids, pos_centroids, clustered_arrays = find_cosegmentation_ros(extractor, saliency_extractor, ims_pil, args.elbow, args.load_size, args.layer,
                                                     args.facet, args.bin, args.thresh, args.model_type, args.stride,
                                                     args.votes_percentage, args.sample_interval,
                                                     args.remove_outliers, args.outliers_thresh,
-                                                    args.low_res_saliency_maps)#, curr_save_dir)
-
+                                                    args.low_res_saliency_maps)
         # saving cosegmentations
         binary_mask_figs = draw_cosegmentation_binary_masks(seg_masks)
         chessboard_bg_figs = draw_cosegmentation(seg_masks, pil_images)
 
-
-
-    image_pub = rospy.Publisher("/kelpie/img_segmented", RosImage, queue_size=10)
     
-    im = seg_masks[0].convert('RGB') # assuming single image only in list
+    # get angles, depth for each cluster centroid
+
+    # 0,0 top left, 1,1 bottom right
+    # x down, y right, z forwards
+    # TODO: check if this is correct
+    
+    for pos_cent in pos_centroids:
+        bearing = pos_cent[0] * CAM_FOV_HOR
+        elevation = pos_cent[1] * CAM_FOV_VERT
+        x_pix = int(pos_cent[0] * image_msg.width)
+        y_pix = int(pos_cent[1] * image_msg.height) 
+        print(x_pix, y_pix)
+        range = depth_array[y_pix, x_pix]/1000.0 # convert to meters
+        print(range)
+        x, y, z = unproject(x_pix, y_pix, range, K)
+        print(x, y, z)
+        
+    # publish 3D positions of cluster centroids 
+    # TODO what does DCSAM want for message type?
+
+
+    cluster_img_pub = rospy.Publisher("/usb_cam/img_segmented", RosImage, queue_size=10)
+    fg_bg_img_pub = rospy.Publisher("/usb_cam/img_fg_bg", RosImage, queue_size=10)
+    
+    # for publishing segmentation masks (fg/bg)
+    im_mask = seg_masks[0].convert('RGB') # assuming single image only in list
+    msg_mask = RosImage()
+    msg_mask.header.stamp = rospy.Time.now()
+    msg_mask.height = im_mask.height
+    msg_mask.width = im_mask.width
+    msg_mask.encoding = "rgb8"
+    msg_mask.is_bigendian = False
+    msg_mask.step = 3 * im_mask.width
+    msg_mask.data = np.array(im_mask).tobytes()
+
+    fg_bg_img_pub.publish(msg_mask)    
+    
+    # for publishing cluster images
+    normalizedClusters = (clustered_arrays-np.min(clustered_arrays))/(np.max(clustered_arrays)-np.min(clustered_arrays))
+    im = Image.fromarray(np.uint8(cm.jet(normalizedClusters)*255))
+    im = im.convert('RGB')
 
     msg = RosImage()
     msg.header.stamp = rospy.Time.now()
@@ -65,7 +148,7 @@ def image_callback(msg):
     msg.step = 3 * im.width
     msg.data = np.array(im).tobytes()
 
-    image_pub.publish(msg)
+    cluster_img_pub.publish(msg)
 
 
     # try:
@@ -73,21 +156,19 @@ def image_callback(msg):
     # except CvBridgeError as e:
     #     print(e)
 
+
+
+
 if __name__ == "__main__":
     rospy.init_node('img_segmentation_node')
-    image_topic = "/usb_cam/image_raw/compressed"
-
-    rospy.Subscriber(image_topic, RosImageCompressed, image_callback)
-
-    print("STARTED SUBSCRIBER!")
 
     parser = argparse.ArgumentParser(description='Facilitate ViT Descriptor cosegmentations.')
     # parser.add_argument('--root_dir', type=str, required=True, help='The root dir of image sets.')
     # parser.add_argument('--save_dir', type=str, required=True, help='The root save dir for image sets results.')
-    parser.add_argument('--load_size', default=224, type=int, help='load size of the input images. If None maintains'
+    parser.add_argument('--load_size', default=200, type=int, help='load size of the input images. If None maintains'
                                                                     'original image size, if int resizes each image'
                                                                     'such that the smaller side is this number.')
-    parser.add_argument('--stride', default=8, type=int, help="""stride of first convolution layer. 
+    parser.add_argument('--stride', default=4, type=int, help="""stride of first convolution layer. 
                                                                  small stride -> higher resolution.""")
     parser.add_argument('--model_type', default='dino_vits8', type=str,
                         help="""type of model to extract. 
@@ -101,14 +182,45 @@ if __name__ == "__main__":
     parser.add_argument('--elbow', default=0.975, type=float, help='Elbow coefficient for setting number of clusters.')
     parser.add_argument('--votes_percentage', default=75, type=int, help="percentage of votes needed for a cluster to "
                                                                          "be considered salient.")
-    parser.add_argument('--sample_interval', default=100, type=int, help="sample every ith descriptor for training"
+    parser.add_argument('--sample_interval', default=10, type=int, help="sample every ith descriptor for training"
                                                                          "clustering.")
     parser.add_argument('--remove_outliers', default='False', type=str2bool, help="Remove outliers using cls token.")
     parser.add_argument('--outliers_thresh', default=0.7, type=float, help="Threshold for removing outliers.")
-    parser.add_argument('--low_res_saliency_maps', default='True', type=str2bool, help="using low resolution saliency "
-                                                                                       "maps. Reduces RAM needs.")
+    parser.add_argument('--low_res_saliency_maps', default='True', type=str2bool, help="using low resolution saliency maps. Reduces RAM needs.")
+    parser.add_argument('--cam_fov_hor', default=69.4, type=int, help="Camera horizontal field of view in degrees.")
+    parser.add_argument('--cam_fov_vert', default=42.5, type=int, help="Camera horizontal field of view in degrees.")
+
 
     args = parser.parse_args()
+    
+    CAM_FOV_HOR = args.cam_fov_hor
+    CAM_FOV_VERT = args.cam_fov_vert
+    
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    extractor = ViTExtractor(args.model_type, args.stride, device=device)
+    if args.low_res_saliency_maps:
+        saliency_extractor = ViTExtractor(args.model_type, stride=8, device=device)
+    else:
+        saliency_extractor = extractor
+    bridge = CvBridge()
+    
+    cam_info_topic = "/camera/color/camera_info"
+    cam_info_msg = rospy.wait_for_message(cam_info_topic, CameraInfo)
+    K = np.array(cam_info_msg.K).reshape(3,3)
+    print("Camera intrinsics: ", K)
+
+    
+    
+    image_topic = "/camera/color/image_raw"
+    depth_topic = "/camera/aligned_depth_to_color/image_raw"
+
+    image_sub = message_filters.Subscriber(image_topic, RosImage)
+    depth_sub = message_filters.Subscriber(depth_topic, RosImage)
+
+    ts = message_filters.ApproximateTimeSynchronizer([image_sub, depth_sub], 10, 0.1, allow_headerless=True)
+    ts.registerCallback(image_depth_callback)
+    
+    print("STARTED SUBSCRIBER!")
 
 
     rospy.spin()
