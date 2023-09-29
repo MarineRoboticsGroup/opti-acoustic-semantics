@@ -84,6 +84,7 @@ def show_similarity_interactive(image_path_a: str, image_path_b: str, load_size:
         new_W = patch_size / stride * (load_size_a[1] // patch_size - 1) + 1
         y_descs_coor = int(new_H / load_size_a[0] * y_coor)
         x_descs_coor = int(new_W / load_size_a[1] * x_coor)
+        print(descs_a.shape, y_descs_coor, x_descs_coor, idx, num_patches_a)
 
         # reset previous marks
         for patch in visible_patches:

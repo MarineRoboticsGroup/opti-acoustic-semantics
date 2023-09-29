@@ -8,8 +8,11 @@ import numpy as np
 import faiss
 from PIL import Image
 import matplotlib.pyplot as plt
+from matplotlib import cm
 import cv2
 from typing import List, Tuple
+
+MIN_SIZE = 500 # in patches 
 
 
 def find_cosegmentation_ros(extractor: ViTExtractor, saliency_extractor: ViTExtractor, imgs: List[Image.Image], elbow: float = 0.975, load_size: int = 224, layer: int = 11, # TODO extend to multiple images (can we leverage cosegmentation?)
@@ -143,6 +146,7 @@ def find_cosegmentation_ros(extractor: ViTExtractor, saliency_extractor: ViTExtr
             break
 
     centroids = algorithm.centroids
+    print(centroids.shape)
     num_labels = np.max(n_clusters) + 1
     num_descriptors_per_image = [num_patches[0]*num_patches[1] for num_patches in num_patches_list]
     labels_per_image = np.split(labels, np.cumsum(num_descriptors_per_image))
@@ -160,31 +164,36 @@ def find_cosegmentation_ros(extractor: ViTExtractor, saliency_extractor: ViTExtr
     # cluster saliency filtering and visualization
     reshaped_labels = None
     cmap = 'jet' if num_labels > 10 else 'tab10'
-    for img, num_patches, label_per_image in zip(imgs, num_patches_list, labels_per_image):
-        reshaped_labels = label_per_image.reshape(num_patches)
-        reshaped_labels += 1 # shift everything up so that 0 is background 
-        saliency_mask = np.isin(label_per_image, salient_labels).reshape(num_patches)
-        salient_reshaped_labels = reshaped_labels * saliency_mask # set non-salient labels to 0
+    # for img, num_patches, label_per_image in zip(imgs, num_patches_list, labels_per_image):
+        #reshaped_labels = label_per_image.reshape(num_patches)
+        # normalizedClusters = (reshaped_labels-np.min(reshaped_labels))/(np.max(reshaped_labels)-np.min(reshaped_labels))
+        # im = Image.fromarray(np.uint8(cm.jet(normalizedClusters)*255))
+        # im = im.convert('RGB')
+        # im.show()
+        # reshaped_labels += 1 # shift everything up so that 0 is background 
+        # saliency_mask = np.isin(label_per_image, salient_labels).reshape(num_patches)
+        # salient_reshaped_labels = reshaped_labels * saliency_mask # set non-salient labels to 0
         
         # compute centroids in patch space
-        pos_centroids_sum = np.zeros((num_labels, 3))
-        for x_idx, ys in enumerate(reshaped_labels):
-            for y_idx, val in enumerate(ys):
-                pos_centroids_sum[val][0] += x_idx
-                pos_centroids_sum[val][1] += y_idx
-                pos_centroids_sum[val][2] += 1  # count for normalization
-        pos_centroids = pos_centroids_sum / pos_centroids_sum[:, 2][:, None]
-        pos_centroids = np.delete(pos_centroids, 0, 0) # remove first row (non-salient clusters). Note this resets the labels to start at 0
-        pos_centroids = np.delete(pos_centroids, -1, 1) # remove count column 
+        # pos_centroids_sum = np.zeros((num_labels, 3))
+        # for x_idx, ys in enumerate(reshaped_labels):
+        #     for y_idx, val in enumerate(ys):
+        #         pos_centroids_sum[val][0] += x_idx
+        #         pos_centroids_sum[val][1] += y_idx
+        #         pos_centroids_sum[val][2] += 1  # count for normalization
+        # pos_centroids = pos_centroids_sum / pos_centroids_sum[:, 2][:, None]
+        # pos_centroids = np.delete(pos_centroids, 0, 0) # remove first row (non-salient clusters). Note this resets the labels to start at 0
+        # pos_centroids = np.delete(pos_centroids, -1, 1) # remove count column 
 
-        print(pos_centroids)
-        print(num_patches)
-        pos_centroids[:, 0] /= num_patches[0]
-        pos_centroids[:, 1] /= num_patches[1]
+        # print(pos_centroids)
+        # print(num_patches)
+        # pos_centroids[:, 0] /= num_patches[0]
+        # pos_centroids[:, 1] /= num_patches[1]
     
     # create masks using the salient labels
     segmentation_masks = []
     for img, labels, num_patches, load_size in zip(image_pil_list, labels_per_image, num_patches_list, load_size_list):
+        reshaped_labels = labels.reshape(num_patches)
         mask = np.isin(labels, salient_labels).reshape(num_patches)
         resized_mask = np.array(Image.fromarray(mask).resize((load_size[1], load_size[0]), resample=Image.LANCZOS))
         try:
@@ -206,9 +215,44 @@ def find_cosegmentation_ros(extractor: ViTExtractor, saliency_extractor: ViTExtr
             # if mask is unfitted from gb (e.g. all zeros) -- don't apply it
             grabcut_mask = resized_mask.astype('uint8')
 
-        grabcut_mask = Image.fromarray(np.array(grabcut_mask, dtype=bool))
-        segmentation_masks.append(grabcut_mask)
-
+        grabcut_mask_img = Image.fromarray(np.array(grabcut_mask, dtype=bool))
+        #grabcut_mask_img.show()
+        segmentation_masks.append(grabcut_mask_img)
+        
+        # run connected components on mask to obtain instance level segmentation
+        connectivity = 4
+        cc_num_labels, cc_labels, cc_stats, cc_centroids = cv2.connectedComponentsWithStats(grabcut_mask, connectivity, cv2.CV_32S)
+        
+        pos_centroids = []
+        latent_centroids = []
+        for stat, centroid in zip(cc_stats[1:], cc_centroids[1:]): # first stat is background
+            # print(stat, centroid)
+            # print(grabcut_mask.shape)
+            # print(num_patches)
+            
+            # filters: size, contact with edge of frame 
+            # grabcut shape dimensions are swapped compared to opencv stats 
+            if stat[4] < MIN_SIZE or stat[0] == 0 or stat[1] == 0 or stat[0] + stat[2] == grabcut_mask.shape[1] or stat[1] + stat[3] == grabcut_mask.shape[0]:
+                continue
+            else:
+                # calculate centroid in 3D space, camera frame, percentage of distance across image
+                x_percent = centroid[0]/grabcut_mask.shape[1]
+                y_percent = centroid[1]/grabcut_mask.shape[0]
+                pos_centroids.append([x_percent, y_percent])        
+                
+                # look up  centroid in latent space to obtain latent centroid
+                x_patch = int(centroid[0]/grabcut_mask.shape[1] * num_patches[0])
+                y_patch = int(centroid[1]/grabcut_mask.shape[0] * num_patches[1])
+                
+                # assuming single image only in list
+                # print(labels_per_image)
+                # print(int(labels_per_image[0][y_patch * x_patch]))
+                latent_centroid = centroids[int(labels_per_image[0][y_patch * x_patch])]
+                # print(centroids[5])
+                # print(latent_centroid)
+                latent_centroids.append(latent_centroid)
+        
+        
     #TODO update to work with image input
     # if remove_outliers:
     #     outlier_segmentation_masks = []
@@ -225,8 +269,8 @@ def find_cosegmentation_ros(extractor: ViTExtractor, saliency_extractor: ViTExtr
     #             final_pil_images.append(outlier_image_pil.pop(0))
     #     segmentation_masks = final_segmentation_masks
     #     image_pil_list = final_pil_images
-
-    return segmentation_masks, image_pil_list, centroids, pos_centroids, salient_reshaped_labels # TODO make sure we're only taking centroids from foreground clusters, double check centroid format
+    
+    return segmentation_masks, image_pil_list, latent_centroids, pos_centroids, reshaped_labels # TODO make sure we're only taking centroids from foreground clusters, double check centroid format
 
 
 def draw_cosegmentation(segmentation_masks: List[Image.Image], pil_images: List[Image.Image]) -> List[plt.Figure]:
