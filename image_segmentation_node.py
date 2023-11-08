@@ -217,7 +217,7 @@ if __name__ == "__main__":
         saliency_extractor = extractor
     bridge = CvBridge()
     
-    cam_info_topic = "/camera/rgb/camera_info"
+    cam_info_topic = "/camera/color/camera_info"
     cam_info_msg = rospy.wait_for_message(cam_info_topic, CameraInfo)
     K = np.array(cam_info_msg.K).reshape(3,3)
     print("Camera intrinsics: ", K)
@@ -227,8 +227,8 @@ if __name__ == "__main__":
     cluster_pub = rospy.Publisher("/camera/objects", ObjectsVector, queue_size=10)
 
     
-    image_topic = "/camera/rgb/image_color"
-    depth_topic = "/camera/depth/image"
+    image_topic = "/camera/color/image_raw"
+    depth_topic = "/camera/aligned_depth_to_color/image_raw"
 
     image_sub = message_filters.Subscriber(image_topic, RosImage)
     depth_sub = message_filters.Subscriber(depth_topic, RosImage)
