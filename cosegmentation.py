@@ -151,9 +151,7 @@ def find_cosegmentation_ros(extractor: ViTExtractor, saliency_extractor: ViTExtr
     num_descriptors_per_image = [num_patches[0]*num_patches[1] for num_patches in num_patches_list]
     labels_per_image = np.split(labels, np.cumsum(num_descriptors_per_image))
 
-    # get binary mask for each label
-    for n in range(num_labels):
-        pass 
+
 
     # use saliency maps to vote for salient clusters
     votes = np.zeros(num_labels)
