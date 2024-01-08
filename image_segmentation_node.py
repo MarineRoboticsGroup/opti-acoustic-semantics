@@ -63,22 +63,17 @@ def unproject(
     cy = K[1,2]
     x = (u - cx) * z / fx
     y = (v - cy) * z / fy
-    # print(u,v)
-    # print(fx, fy, cx, cy)
-    print(x, y, z)
     return np.array([x, y, z])
 
 def image_depth_callback(image_msg, depth_msg):
+    print("new object message")
     # global extractor, saliency_extractor, args, bridge, CAM_FOV, CAM_TO_SONAR_TF, SONAR_TO_CAM_TF
-      # print(data.encoding)
     try:
         cv_image = bridge.imgmsg_to_cv2(image_msg, "passthrough")
     except CvBridgeError as e:
         print(e)
     
-    im_pil = Image.fromarray(cv_image)
-    # print(im_pil.size)
-    
+    im_pil = Image.fromarray(cv_image)    
     depth_image = bridge.imgmsg_to_cv2(depth_msg, "passthrough")
     depth_array = np.array(depth_image, dtype=np.float32)
 
@@ -110,15 +105,18 @@ def image_depth_callback(image_msg, depth_msg):
     for i, pos_cent in enumerate(pos_centroids):
         # bearing = pos_cent[0] * CAM_FOV_HOR
         # elevation = pos_cent[1] * CAM_FOV_VERT
+
         x_pix = int(pos_cent[0] * image_msg.width)
         y_pix = int(pos_cent[1] * image_msg.height) 
+
+
         #x_pix = int(pos_cent[0])
         #y_pix = int(pos_cent[1])
-        #print(x_pix, y_pix)
-        range = depth_array[y_pix, x_pix]/1000.0 # convert to meters
-        #print(range)
+        
+        # for TUM rosbags, depth is already in meters 
+        range = depth_array[y_pix, x_pix]  # /1000.0 # convert to meters
         x, y, z = unproject(x_pix, y_pix, range, K)
-        #print(x, y, z)
+        print(x, y, z)
         centroid_msg = ObjectVector()
         centroid_msg.geometric_centroid.x = x
         centroid_msg.geometric_centroid.y = y
@@ -217,7 +215,7 @@ if __name__ == "__main__":
         saliency_extractor = extractor
     bridge = CvBridge()
     
-    cam_info_topic = "/camera/color/camera_info"
+    cam_info_topic = "/camera/rgb/camera_info"
     cam_info_msg = rospy.wait_for_message(cam_info_topic, CameraInfo)
     K = np.array(cam_info_msg.K).reshape(3,3)
     print("Camera intrinsics: ", K)
@@ -227,8 +225,8 @@ if __name__ == "__main__":
     cluster_pub = rospy.Publisher("/camera/objects", ObjectsVector, queue_size=10)
 
     
-    image_topic = "/camera/color/image_raw"
-    depth_topic = "/camera/aligned_depth_to_color/image_raw"
+    image_topic = "/camera/rgb/image_color"
+    depth_topic = "/camera/depth/image"
 
     image_sub = message_filters.Subscriber(image_topic, RosImage)
     depth_sub = message_filters.Subscriber(depth_topic, RosImage)

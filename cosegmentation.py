@@ -12,7 +12,8 @@ from matplotlib import cm
 import cv2
 from typing import List, Tuple
 
-MIN_SIZE = 500 # in patches 
+MIN_SIZE = 1000 # in pixels 
+sparse_setting = False # if we are in an environment with very few objects, this will be more effective
 
 
 def find_cosegmentation_ros(extractor: ViTExtractor, saliency_extractor: ViTExtractor, imgs: List[Image.Image], elbow: float = 0.975, load_size: int = 224, layer: int = 11, # TODO extend to multiple images (can we leverage cosegmentation?)
@@ -146,7 +147,6 @@ def find_cosegmentation_ros(extractor: ViTExtractor, saliency_extractor: ViTExtr
             break
 
     centroids = algorithm.centroids
-    print(centroids.shape)
     num_labels = np.max(n_clusters) + 1
     num_descriptors_per_image = [num_patches[0]*num_patches[1] for num_patches in num_patches_list]
     labels_per_image = np.split(labels, np.cumsum(num_descriptors_per_image))
@@ -185,79 +185,74 @@ def find_cosegmentation_ros(extractor: ViTExtractor, saliency_extractor: ViTExtr
         # pos_centroids = np.delete(pos_centroids, 0, 0) # remove first row (non-salient clusters). Note this resets the labels to start at 0
         # pos_centroids = np.delete(pos_centroids, -1, 1) # remove count column 
 
-        # print(pos_centroids)
-        # print(num_patches)
         # pos_centroids[:, 0] /= num_patches[0]
         # pos_centroids[:, 1] /= num_patches[1]
     
     # create masks using the salient labels
     segmentation_masks = []
+    pos_centroids = []
+    latent_centroids = []
+    
+    c = 0
     for img, labels, num_patches, load_size in zip(image_pil_list, labels_per_image, num_patches_list, load_size_list):
+        c += 1
         reshaped_labels = labels.reshape(num_patches)
         mask = np.isin(labels, salient_labels).reshape(num_patches)
         resized_mask = np.array(Image.fromarray(mask).resize((load_size[1], load_size[0]), resample=Image.LANCZOS))
         
         # instance level segmentations: for all salient labels, run a connected components analysis 
-        for label in range(num_labels): 
-            if label not in salient_labels:
-               pass 
-            else:
-                class_mask = np.where(reshaped_labels == label, 1, 0).reshape(num_patches)
-                resized_class_mask = np.array(Image.fromarray(mask).resize((load_size[1], load_size[0]), resample=Image.LANCZOS))
+        if not sparse_setting: # if we are in an environment with many (especially overlapping) objects, this will be more effective
+            for label in range(num_labels): 
+                if label not in salient_labels[0]:
+                    pass 
+                else:
+                    class_mask = np.where(reshaped_labels == label, True, False).reshape(num_patches)
+                    resized_class_mask = np.array(Image.fromarray(class_mask).resize((load_size[1], load_size[0]), resample=Image.LANCZOS))
 
-               
-                # run grabcut on the mask (connect up occluded sections etc.)
-                try:
-                    # apply grabcut on mask
-                    grabcut_kernel_size = (7, 7)
-                    kernel = np.ones(grabcut_kernel_size, np.uint8)
-                    forground_mask = cv2.erode(np.uint8(resized_class_mask), kernel)
-                    forground_mask = np.array(Image.fromarray(forground_mask).resize(img.size, Image.NEAREST))
-                    background_mask = cv2.erode(np.uint8(1 - resized_class_mask), kernel)
-                    background_mask = np.array(Image.fromarray(background_mask).resize(img.size, Image.NEAREST))
-                    full_mask = np.ones((load_size[0], load_size[1]), np.uint8) * cv2.GC_PR_FGD
-                    full_mask[background_mask == 1] = cv2.GC_BGD
-                    full_mask[forground_mask == 1] = cv2.GC_FGD
-                    bgdModel = np.zeros((1, 65), np.float64)
-                    fgdModel = np.zeros((1, 65), np.float64)
-                    cv2.grabCut(np.array(img), full_mask, None, bgdModel, fgdModel, 5, cv2.GC_INIT_WITH_MASK)
-                    grabcut_mask = np.where((full_mask == 2) | (full_mask == 0), 0, 1).astype('uint8')
-                except Exception:
-                    # if mask is unfitted from gb (e.g. all zeros) -- don't apply it
-                    grabcut_mask = resized_mask.astype('uint8')
-                    
-                # run connected components to get instance level segmentations for this label 
-                connectivity = 4
-                cc_num_labels, cc_labels, cc_stats, cc_centroids = cv2.connectedComponentsWithStats(grabcut_mask, connectivity, cv2.CV_32S)
                 
-                pos_centroids = []
-                latent_centroids = []
-                for stat, centroid in zip(cc_stats[1:], cc_centroids[1:]): # first stat is background
-                    # print(stat, centroid)
-                    # print(grabcut_mask.shape)
-                    # print(num_patches)
-                    
-                    # filters: size, contact with edge of frame 
-                    # grabcut shape dimensions are swapped compared to opencv stats 
-                    if stat[4] < MIN_SIZE or stat[0] == 0 or stat[1] == 0 or stat[0] + stat[2] == grabcut_mask.shape[1] or stat[1] + stat[3] == grabcut_mask.shape[0]:
-                        continue
-                    else:
-                        # calculate centroid in 3D space, camera frame, percentage of distance across image
-                        x_percent = centroid[0]/grabcut_mask.shape[1]
-                        y_percent = centroid[1]/grabcut_mask.shape[0]
-                        pos_centroids.append([x_percent, y_percent])        
+                    # run grabcut on the mask (connect up occluded sections etc.)
+                    try:
+                        # apply grabcut on mask
+                        grabcut_kernel_size = (7, 7)
+                        kernel = np.ones(grabcut_kernel_size, np.uint8)
+                        forground_mask = cv2.erode(np.uint8(resized_class_mask), kernel)
+                        forground_mask = np.array(Image.fromarray(forground_mask).resize(img.size, Image.NEAREST))
+                        background_mask = cv2.erode(np.uint8(1 - resized_class_mask), kernel)
+                        background_mask = np.array(Image.fromarray(background_mask).resize(img.size, Image.NEAREST))
+                        full_mask = np.ones((load_size[0], load_size[1]), np.uint8) * cv2.GC_PR_FGD
+                        full_mask[background_mask == 1] = cv2.GC_BGD
+                        full_mask[forground_mask == 1] = cv2.GC_FGD
+                        bgdModel = np.zeros((1, 65), np.float64)
+                        fgdModel = np.zeros((1, 65), np.float64)
+                        cv2.grabCut(np.array(img), full_mask, None, bgdModel, fgdModel, 5, cv2.GC_INIT_WITH_MASK)
+                        grabcut_mask = np.where((full_mask == 2) | (full_mask == 0), 0, 1).astype('uint8')
+                    except Exception:
+                        # if mask is unfitted from gb (e.g. all zeros) -- don't apply it
+                        grabcut_mask = resized_mask.astype('uint8')
                         
-                        # look up  centroid in latent space to obtain latent centroid
-                        x_patch = int(centroid[0]/grabcut_mask.shape[1] * num_patches[0])
-                        y_patch = int(centroid[1]/grabcut_mask.shape[0] * num_patches[1])
+                    # run connected components to get instance level segmentations for this label 
+                    connectivity = 4
+                    cc_num_labels, cc_labels, cc_stats, cc_centroids = cv2.connectedComponentsWithStats(grabcut_mask, connectivity, cv2.CV_32S)
+                    for stat, centroid in zip(cc_stats[1:], cc_centroids[1:]): # first stat is background
+
                         
-                        # assuming single image only in list
-                        # print(labels_per_image)
-                        # print(int(labels_per_image[0][y_patch * x_patch]))
-                        latent_centroid = centroids[int(labels_per_image[0][y_patch * x_patch])]
-                        # print(centroids[5])
-                        # print(latent_centroid)
-                        latent_centroids.append(latent_centroid)        
+                        # filters: size, contact with edge of frame 
+                        # grabcut shape dimensions are swapped compared to opencv stats 
+                        if stat[4] < MIN_SIZE or stat[0] == 0 or stat[1] == 0 or stat[0] + stat[2] == grabcut_mask.shape[1] or stat[1] + stat[3] == grabcut_mask.shape[0]:
+                            continue
+                        else:
+                            # calculate centroid in 3D space, camera frame, percentage of distance across image
+                            x_percent = centroid[0]/grabcut_mask.shape[1]
+                            y_percent = centroid[1]/grabcut_mask.shape[0]
+                            pos_centroids.append([x_percent, y_percent])        
+                            
+                            # look up  centroid in latent space to obtain latent centroid
+                            x_patch = int(centroid[0]/grabcut_mask.shape[1] * num_patches[0])
+                            y_patch = int(centroid[1]/grabcut_mask.shape[0] * num_patches[1])
+                            
+                            # assuming single image only in list
+                            latent_centroid = centroids[int(labels_per_image[0][y_patch * x_patch])]
+                            latent_centroids.append(latent_centroid)        
         
         # now back to the fg/bg masks 
         try:
@@ -284,38 +279,30 @@ def find_cosegmentation_ros(extractor: ViTExtractor, saliency_extractor: ViTExtr
         segmentation_masks.append(grabcut_mask_img)
         
         # run connected components on mask to obtain instance level segmentation
-        # connectivity = 4
-        # cc_num_labels, cc_labels, cc_stats, cc_centroids = cv2.connectedComponentsWithStats(grabcut_mask, connectivity, cv2.CV_32S)
-        
-        # pos_centroids = []
-        # latent_centroids = []
-        # for stat, centroid in zip(cc_stats[1:], cc_centroids[1:]): # first stat is background
-        #     # print(stat, centroid)
-        #     # print(grabcut_mask.shape)
-        #     # print(num_patches)
+        if sparse_setting: # if we are in an environment with very few objects, this will be more effective 
+            connectivity = 4
+            cc_num_labels, cc_labels, cc_stats, cc_centroids = cv2.connectedComponentsWithStats(grabcut_mask, connectivity, cv2.CV_32S)
+            pos_centroids = []
+            latent_centroids = []
+            for stat, centroid in zip(cc_stats[1:], cc_centroids[1:]): # first stat is background                
+                # filters: size, contact with edge of frame 
+                # grabcut shape dimensions are swapped compared to opencv stats 
+                if stat[4] < MIN_SIZE or stat[0] == 0 or stat[1] == 0 or stat[0] + stat[2] == grabcut_mask.shape[1] or stat[1] + stat[3] == grabcut_mask.shape[0]:
+                    continue
+                else:
+                    # calculate centroid in 3D space, camera frame, percentage of distance across image
+                    x_percent = centroid[0]/grabcut_mask.shape[1]
+                    y_percent = centroid[1]/grabcut_mask.shape[0]
+                    pos_centroids.append([x_percent, y_percent])        
+                    
+                    # look up  centroid in latent space to obtain latent centroid
+                    x_patch = int(centroid[0]/grabcut_mask.shape[1] * num_patches[0])
+                    y_patch = int(centroid[1]/grabcut_mask.shape[0] * num_patches[1])
+                    
+                    # assuming single image only in list
+                    latent_centroid = centroids[int(labels_per_image[0][y_patch * x_patch])]
+                    latent_centroids.append(latent_centroid)
             
-        #     # filters: size, contact with edge of frame 
-        #     # grabcut shape dimensions are swapped compared to opencv stats 
-        #     if stat[4] < MIN_SIZE or stat[0] == 0 or stat[1] == 0 or stat[0] + stat[2] == grabcut_mask.shape[1] or stat[1] + stat[3] == grabcut_mask.shape[0]:
-        #         continue
-        #     else:
-        #         # calculate centroid in 3D space, camera frame, percentage of distance across image
-        #         x_percent = centroid[0]/grabcut_mask.shape[1]
-        #         y_percent = centroid[1]/grabcut_mask.shape[0]
-        #         pos_centroids.append([x_percent, y_percent])        
-                
-        #         # look up  centroid in latent space to obtain latent centroid
-        #         x_patch = int(centroid[0]/grabcut_mask.shape[1] * num_patches[0])
-        #         y_patch = int(centroid[1]/grabcut_mask.shape[0] * num_patches[1])
-                
-        #         # assuming single image only in list
-        #         # print(labels_per_image)
-        #         # print(int(labels_per_image[0][y_patch * x_patch]))
-        #         latent_centroid = centroids[int(labels_per_image[0][y_patch * x_patch])]
-        #         # print(centroids[5])
-        #         # print(latent_centroid)
-        #         latent_centroids.append(latent_centroid)
-        
         
     #TODO update to work with image input
     # if remove_outliers:
@@ -334,7 +321,7 @@ def find_cosegmentation_ros(extractor: ViTExtractor, saliency_extractor: ViTExtr
     #     segmentation_masks = final_segmentation_masks
     #     image_pil_list = final_pil_images
     
-    return segmentation_masks, image_pil_list, latent_centroids, pos_centroids, reshaped_labels # TODO make sure we're only taking centroids from foreground clusters, double check centroid format
+    return segmentation_masks, image_pil_list, latent_centroids, pos_centroids, reshaped_labels 
 
 
 def draw_cosegmentation(segmentation_masks: List[Image.Image], pil_images: List[Image.Image]) -> List[plt.Figure]:

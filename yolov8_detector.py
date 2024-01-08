@@ -12,9 +12,12 @@ from semanticslam_ros.msg import ObjectsVector, ObjectVector
 from sensor_msgs.msg import CameraInfo, Image
 from ultralytics import YOLO
 from PIL import Image as PILImage
+import sys
+
+np.set_printoptions(threshold=sys.maxsize)
 
 
-CONF_THRESH = 0.6  # Confidence threshold used for YOLO, default is 0.25
+CONF_THRESH = 0.25  # Confidence threshold used for YOLO, default is 0.25
 EMBEDDING_LEN = 512  # Length of the embedding vector, default is 512
 
 
@@ -28,6 +31,13 @@ def unproject(u, v, depth, cam_info):
     cy = cam_info.K[5]
     x = (u - cx) * depth / fx
     y = (v - cy) * depth / fy
+    print("x: ", x)
+    print("y: ", y)
+    print("depth: ", depth)
+    print("fx: ", fx)
+    print("fy: ", fy)
+    print("cx: ", cx)
+    print("cy: ", cy)
     return x, y, depth
 
 
@@ -41,7 +51,7 @@ class ClosedSetDetector:
         model_file = pathlib.Path(__file__).parent / "../../yolo/yolov8m-seg.pt"
         self.model = YOLO(model_file)
         rospy.loginfo("Model loaded")
-        self.objs_pub = rospy.Publisher("objects", ObjectsVector, queue_size=10)
+        self.objs_pub = rospy.Publisher("/camera/objects", ObjectsVector, queue_size=10)
         self.br = CvBridge()
 
         # Set up synchronized subscriber 
@@ -85,7 +95,7 @@ class ClosedSetDetector:
 
         image_cv = self.br.imgmsg_to_cv2(rgb, desired_encoding="bgr8")
         depth_m = (
-            self.br.imgmsg_to_cv2(depth, desired_encoding="passthrough") / 1000.0
+            self.br.imgmsg_to_cv2(depth, desired_encoding="passthrough") # / 1000.0 # for TUM depth is in meters already, for realsense it is in mm
         )  # Depth in meters
         # depth_m = cv2.resize(depth_m, dsize=(1280, 736), interpolation=cv2.INTER_NEAREST) # do this for realsense (img dim not a multiple of max stride length 32)
 
@@ -101,7 +111,7 @@ class ClosedSetDetector:
         for r in results:
             im_array = r.plot()  # plot a BGR numpy array of predictions
             im = PILImage.fromarray(im_array[..., ::-1])  # RGB PIL image
-            im.show()  # show image
+            # im.show()  # show image
             # im.save('results.jpg')  # save image
 
         masks = results.masks.data.cpu().numpy()
@@ -117,15 +127,23 @@ class ClosedSetDetector:
             print(np.shape(mask))
             print(np.shape(depth_m))
             print(class_id)
-            mask = mask > 0  # Convert to binary array
-            obj_depth = np.mean(depth_m[mask], dtype=float)
+            print(conf)
+            mask = mask > 0  # Convert to binary 
+            #print(mask)
+            obj_depth = np.nanmean(depth_m[mask], dtype=float)
             obj_centroid = np.mean(np.argwhere(mask), axis=0)
+            print(obj_centroid)
 
             # Unproject centroid to 3D
             x, y, z = unproject(obj_centroid[1], obj_centroid[0], obj_depth, cam_info)
             object.geometric_centroid.x = x
             object.geometric_centroid.y = y
             object.geometric_centroid.z = z
+            
+            if (conf < .8):
+                object.geometric_centroid.x = np.nan
+                object.geometric_centroid.y = np.nan
+                object.geometric_centroid.z = np.nan
 
             object.latent_centroid = np.zeros(EMBEDDING_LEN)
             assert class_id < EMBEDDING_LEN, "Class ID > length of vector"
