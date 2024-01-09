@@ -2,7 +2,6 @@ from cv_bridge import CvBridge, CvBridgeError
 import cv2
 
 import rospy
-from sensor_msgs.msg import CompressedImage as RosImageCompressed
 from sensor_msgs.msg import Image as RosImage
 import tf2_ros
 #import tf2_geometry_msgs
@@ -10,6 +9,9 @@ import tf2_ros
 import message_filters
 from std_msgs.msg import Int32, Float32
 from sonar_oculus.msg import OculusPing
+from semanticslam_ros.msg import ObjectVector, ObjectsVector
+from sensor_msgs.msg import CameraInfo
+
 
 import numpy as np
 import argparse
@@ -17,8 +19,10 @@ from PIL import Image
 from cosegmentation import find_cosegmentation_ros, draw_cosegmentation_binary_masks, draw_cosegmentation
 import torch
 import io
+import sys
 from matplotlib import cm
 from extractor import ViTExtractor
+import yaml
 
 
 
@@ -52,6 +56,23 @@ def str2bool(v):
     else:
         raise argparse.ArgumentTypeError('Boolean value expected.')
 
+def unproject(
+    u,
+    v,
+    z,
+    K: np.ndarray,
+):
+    """
+    Given pixel coordinates (u, v) and depth z, return 3D point in camera frame
+    """
+    fx = K[0,0]
+    fy = K[1,1]
+    cx = K[0,2]
+    cy = K[1,2]
+    x = (u - cx) * z / fx
+    y = (v - cy) * z / fy
+    return np.array([x, y, z])
+
 def ping_to_range(msg: OculusPing, angle: float) -> float:
     """
     msg: OculusPing message
@@ -79,7 +100,7 @@ def ping_to_range(msg: OculusPing, angle: float) -> float:
                 br = idx*msg.range_resolution
                 return br
             else:
-                return br # TODO: return NaN or something else, integrate with gapslam 
+                return False # TODO: return NaN or something else, integrate with gapslam 
         # idx = np.argmax(ping[:, beam])
         # if ping[idx, beam] > self.threshold:
         #     # beam range
@@ -107,11 +128,18 @@ def image_sonar_callback(image_msg, sonar_msg):
     
     with torch.no_grad():
 
-        im_pil = Image.open(io.BytesIO(bytearray(image_msg.data)))
-        # computing cosegmentation
-        
+        # use this for compressed images 
+        # im_pil = Image.open(io.BytesIO(bytearray(image_msg.data)))
+
+        # use this for uncompressed images        
+        try:
+            cv_image = bridge.imgmsg_to_cv2(image_msg, "passthrough")
+        except CvBridgeError as e:
+            print(e)
+        im_pil = Image.fromarray(cv_image)    
         ims_pil = [im_pil] # list for future extension to cosegmentation of multiple images
-    
+
+        # computing cosegmentation
         seg_masks, pil_images, centroids, pos_centroids, clustered_arrays = find_cosegmentation_ros(extractor, saliency_extractor, ims_pil, args.elbow, args.load_size, args.layer,
                                                     args.facet, args.bin, args.thresh, args.model_type, args.stride,
                                                     args.votes_percentage, args.sample_interval,
@@ -124,19 +152,40 @@ def image_sonar_callback(image_msg, sonar_msg):
 
 
     # transform clusters into sonar frame
-    # TODO for now just assume sonar and camera colocated 
+    # for now just assume sonar and camera colocated 
     
-    # get sonar range for each cluster
+    # get sonar range for each cluster  
+    # publish 3D positions of cluster centroids 
 
-    for centroid in pos_centroids:
-        bearing = centroid[0] * CAM_FOV
+    # 0,0 top left, 1,1 bottom right
+    # x down, y right, z forwards
+    centroids_msg = ObjectsVector()
+    centroids_msg.header = image_msg.header
+
+    for i, pos_cent in enumerate(pos_centroids):
+        bearing = pos_cent[0] * CAM_FOV
         print(bearing) 
         range = ping_to_range(sonar_msg, bearing)
         print(range)
-    
-    # publish 3D positions of cluster centroids 
-    # TODO what does DCSAM want for message type?
 
+        if range:
+            x_pix = int(pos_cent[0] * image_msg.width)
+            y_pix = int(pos_cent[1] * image_msg.height) 
+
+            
+            x, y, z = unproject(x_pix, y_pix, range, K)
+            print(x, y, z)
+            centroid_msg = ObjectVector()
+            centroid_msg.geometric_centroid.x = x
+            centroid_msg.geometric_centroid.y = y
+            centroid_msg.geometric_centroid.z = z
+            centroid_msg.latent_centroid = list(centroids[i])
+            
+            centroids_msg.objects.append(centroid_msg)
+        
+    # publish 3D positions of cluster centroids
+
+    cluster_pub.publish(centroids_msg)
 
     cluster_img_pub = rospy.Publisher("/usb_cam/img_segmented", RosImage, queue_size=10)
     fg_bg_img_pub = rospy.Publisher("/usb_cam/img_fg_bg", RosImage, queue_size=10)
@@ -222,10 +271,23 @@ if __name__ == "__main__":
         saliency_extractor = extractor
     bridge = CvBridge()
     
-    image_topic = "/usb_cam/image_raw/compressed"
+    
+    with open("/home/singhk/data/building_1_pool/bluerov_1080_cal.yaml", 
+                  'r') as stream:
+        cam_info = yaml.safe_load(stream)
+            
+    K = np.array(cam_info['camera_matrix']['data']).reshape(3,3)
+    print("Camera intrinsics: ", K)
+
+    cluster_img_pub = rospy.Publisher("/camera/img_segmented", RosImage, queue_size=10)
+    fg_bg_img_pub = rospy.Publisher("/camera/img_fg_bg", RosImage, queue_size=10)
+    cluster_pub = rospy.Publisher("/camera/objects", ObjectsVector, queue_size=10)
+
+    
+    image_topic = "/usb_cam/image_raw_repub"
     sonar_topic = "/sonar_horizontal/oculus_node/ping"
 
-    image_sub = message_filters.Subscriber(image_topic, RosImageCompressed)
+    image_sub = message_filters.Subscriber(image_topic, RosImage)
     sonar_sub = message_filters.Subscriber(sonar_topic, OculusPing)
 
     ts = message_filters.ApproximateTimeSynchronizer([image_sub, sonar_sub], 10, 0.1, allow_headerless=True)
@@ -234,8 +296,8 @@ if __name__ == "__main__":
     tfBuffer = tf2_ros.Buffer()
     listener = tf2_ros.TransformListener(tfBuffer)
 
-    SONAR_TO_CAM_TF = tfBuffer.lookup_transform('sonar_horizontal', 'usb_cam', rospy.Time(0), rospy.Duration(1))
-    CAM_TO_SONAR_TF = tfBuffer.lookup_transform('usb_cam', 'sonar_horizontal', rospy.Time(0), rospy.Duration(1))
+    # SONAR_TO_CAM_TF = tfBuffer.lookup_transform('sonar_horizontal', 'usb_cam', rospy.Time(0), rospy.Duration(1))
+    # CAM_TO_SONAR_TF = tfBuffer.lookup_transform('usb_cam', 'sonar_horizontal', rospy.Time(0), rospy.Duration(1))
     
     
     print("STARTED SUBSCRIBER!")
