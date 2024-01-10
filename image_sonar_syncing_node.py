@@ -11,7 +11,7 @@ from std_msgs.msg import Int32, Float32
 from sonar_oculus.msg import OculusPing
 from semanticslam_ros.msg import ObjectVector, ObjectsVector
 from sensor_msgs.msg import CameraInfo
-
+import object_selection_gui
 
 import numpy as np
 import argparse
@@ -19,6 +19,7 @@ from PIL import Image
 from cosegmentation import find_cosegmentation_ros, draw_cosegmentation_binary_masks, draw_cosegmentation
 import torch
 import io
+import os
 import sys
 from matplotlib import cm
 from extractor import ViTExtractor
@@ -234,6 +235,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Facilitate ViT Descriptor cosegmentations.')
     # parser.add_argument('--root_dir', type=str, required=True, help='The root dir of image sets.')
     # parser.add_argument('--save_dir', type=str, required=True, help='The root save dir for image sets results.')
+    parser.add_argument('--remove_objects_image_dir', default=None, type=str, required=False, help='The root dir of images that contain'
+                                                                                    'to remove. A GUI to select objects'
+                                                                                    'will appear.')
     parser.add_argument('--load_size', default=360, type=int, help='load size of the input images. If None maintains'
                                                                     'original image size, if int resizes each image'
                                                                     'such that the smaller side is this number.')
@@ -258,10 +262,19 @@ if __name__ == "__main__":
     parser.add_argument('--low_res_saliency_maps', default='True', type=str2bool, help="using low resolution saliency "
                                                                                        "maps. Reduces RAM needs.")
     parser.add_argument('--cam_fov', default=80, type=int, help="Camera field of view in degrees.")
+    parser.add_argument('--cam_calibration_path', default='/home/singhk/data/building_1_pool/bluerov_1080_cal.yaml', type=str, help="Path to camera calibration yaml file.")
 
     args = parser.parse_args()
     
     CAM_FOV = args.cam_fov
+    
+    # for each image in the directory, bring up a GUI to select objects to remove
+    if args.remove_objects_image_dir:
+        for image_path in os.listdir(args.remove_objects_image_dir):
+            with torch.no_grad():
+                object_selection_gui.show_similarity_interactive(args.remove_objects_image_dir + "/" + image_path, args.load_size, args.layer, args.facet, 
+                                                             args.bin, args.stride, args.model_type)
+        
     
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     extractor = ViTExtractor(args.model_type, args.stride, device=device)
@@ -272,8 +285,7 @@ if __name__ == "__main__":
     bridge = CvBridge()
     
     
-    with open("/home/singhk/data/building_1_pool/bluerov_1080_cal.yaml", 
-                  'r') as stream:
+    with open(args.cam_calibration_path,'r') as stream:
         cam_info = yaml.safe_load(stream)
             
     K = np.array(cam_info['camera_matrix']['data']).reshape(3,3)
