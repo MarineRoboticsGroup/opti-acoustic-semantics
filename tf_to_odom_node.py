@@ -1,4 +1,4 @@
-#!/home/singhk/miniconda3/envs/dino-vit-feats-env/bin python
+#!/usr/bin/python3
 
 import rospy 
 from tf2_msgs.msg import TFMessage
@@ -14,7 +14,7 @@ import numpy as np
 
 # added_noise_gaussian = [np.random.normal(0, odom_noise[i], 1) for i in range(6)]
 
-tf_pub = rospy.Publisher("/odometry", Odometry, queue_size=10)
+tf_pub = rospy.Publisher("/pose", Odometry, queue_size=10)
 
 def tf_callback(tf_msg):
     odom_msg = Odometry()
