@@ -41,6 +41,6 @@ $ pip install git+https://github.com/lucasb-eyer/pydensecrf.git
 $ conda install -c anaconda scikit-learn
 ```
 
-
-
-
+## Misc
+To run with maxmixture repo, run before running the main roslaunch command
+$ python tf_to_odom_node.py
