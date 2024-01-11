@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 from matplotlib import cm
 import cv2
 from typing import List, Tuple
+from numpy.linalg import norm
 
 MIN_SIZE = 1000 # in pixels 
 sparse_setting = False # if we are in an environment with very few objects, this will be more effective
@@ -20,7 +21,7 @@ def find_cosegmentation_ros(extractor: ViTExtractor, saliency_extractor: ViTExtr
                         facet: str = 'key', bin: bool = False, thresh: float = 0.065, model_type: str = 'dino_vits8',
                         stride: int = 8, votes_percentage: int = 75, sample_interval: int = 100,
                         remove_outliers: bool = False, outliers_thresh: float = 0.7, low_res_saliency_maps: bool = True,
-                        save_dir: str = None, removal_obj_codes: List[List[float]] = None) -> Tuple[List[Image.Image], List[Image.Image], List[Tuple[int, int]], List[Tuple[float, float]], List[int]]:
+                        save_dir: str = None, removal_obj_codes: List[List[float]] = None, obj_removal_thresh: float = 0.9) -> Tuple[List[Image.Image], List[Image.Image], List[Tuple[int, int]], List[Tuple[float, float]], List[int]]:
     """
     finding cosegmentation of a set of images.
     :param imgs: a list of all the images in Pil format.
@@ -131,6 +132,16 @@ def find_cosegmentation_ros(extractor: ViTExtractor, saliency_extractor: ViTExtr
             if label_saliency > thresh:
                 votes[label] += 1
     salient_labels = np.where(votes >= np.ceil(num_images * votes_percentage / 100))
+    
+    # check if any of the salient labels' latent centroids are in the removal_obj_codes list
+    # if so, remove them from the salient labels list
+    for obj_code in removal_obj_codes:
+        for label in salient_labels:
+            # check cosine similarity between centroid and obj_code
+            cos_sim = np.dot(obj_code, label)/(norm(obj_code)*norm(label))
+            if cos_sim > obj_removal_thresh:
+                salient_labels = np.delete(salient_labels, label)
+        
     
     # cluster saliency filtering and visualization
     reshaped_labels = None

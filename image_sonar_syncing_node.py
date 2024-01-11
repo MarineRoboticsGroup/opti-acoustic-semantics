@@ -145,7 +145,7 @@ def image_sonar_callback(image_msg, sonar_msg):
                                                     args.facet, args.bin, args.thresh, args.model_type, args.stride,
                                                     args.votes_percentage, args.sample_interval,
                                                     args.remove_outliers, args.outliers_thresh,
-                                                    args.low_res_saliency_maps, removal_obj_codes)#, curr_save_dir)
+                                                    args.low_res_saliency_maps, removal_obj_codes, args.obj_removal_thresh)#, curr_save_dir)
         
         # saving cosegmentations
         binary_mask_figs = draw_cosegmentation_binary_masks(seg_masks)
@@ -263,7 +263,7 @@ if __name__ == "__main__":
                                                                                        "maps. Reduces RAM needs.")
     parser.add_argument('--cam_fov', default=80, type=int, help="Camera field of view in degrees.")
     parser.add_argument('--cam_calibration_path', default='/home/singhk/data/building_1_pool/bluerov_1080_cal.yaml', type=str, help="Path to camera calibration yaml file.")
-
+    parser.add_argument('--obj_removal_thresh', default=0.9, type=float, help="Cosine similarity threshold for removing objects from cosegmentation.")
     args = parser.parse_args()
     
     CAM_FOV = args.cam_fov
