@@ -20,7 +20,7 @@ def find_cosegmentation_ros(extractor: ViTExtractor, saliency_extractor: ViTExtr
                         facet: str = 'key', bin: bool = False, thresh: float = 0.065, model_type: str = 'dino_vits8',
                         stride: int = 8, votes_percentage: int = 75, sample_interval: int = 100,
                         remove_outliers: bool = False, outliers_thresh: float = 0.7, low_res_saliency_maps: bool = True,
-                        save_dir: str = None) -> Tuple[List[Image.Image], List[Image.Image], List[Tuple[int, int]], List[Tuple[float, float]], List[int]]:
+                        save_dir: str = None, removal_obj_codes: List[List[float]] = None) -> Tuple[List[Image.Image], List[Image.Image], List[Tuple[int, int]], List[Tuple[float, float]], List[int]]:
     """
     finding cosegmentation of a set of images.
     :param imgs: a list of all the images in Pil format.
@@ -96,35 +96,6 @@ def find_cosegmentation_ros(extractor: ViTExtractor, saliency_extractor: ViTExtr
             fig.savefig(save_dir / f'{Path(image_path).stem}_saliency_map.png', bbox_inches='tight', pad_inches=0)
             plt.close(fig)
             image_pil.save(save_dir / f'{Path(image_path).stem}_resized.png')
-            
-    #TODO fix this to work with image inputs
-    # if remove_outliers:
-    #     all_cls_descriptors = torch.stack(cls_descriptors, dim=2)[0, 0]
-    #     mean_cls_descriptor = torch.mean(all_cls_descriptors, dim=0)[None, ...]
-    #     cos_sim = torch.nn.CosineSimilarity(dim=1)
-    #     similarities_to_mean = cos_sim(all_cls_descriptors, mean_cls_descriptor)
-    #     inliers_idx = torch.where(similarities_to_mean >= outliers_thresh)[0]
-    #     inlier_image_paths, outlier_image_paths = [], []
-    #     inlier_descriptors, outlier_descriptors = [], []
-    #     inlier_saliency_maps, outlier_saliency_maps = [], []
-    #     inlier_image_pil, outlier_image_pil = [], []
-    #     inlier_num_patches, outlier_num_patches = [], []
-    #     inlier_load_size, outlier_load_size = [], []
-    #     for idx, (image_path, descriptor, saliency_map, pil_image, num_patches, load_size) in enumerate(zip(image_paths,
-    #             descriptors_list, saliency_maps_list, image_pil_list, num_patches_list, load_size_list)):
-    #         (inlier_image_paths if idx in inliers_idx else outlier_image_paths).append(image_path)
-    #         (inlier_descriptors if idx in inliers_idx else outlier_descriptors).append(descriptor)
-    #         (inlier_saliency_maps if idx in inliers_idx else outlier_saliency_maps).append(saliency_map)
-    #         (inlier_image_pil if idx in inliers_idx else outlier_image_pil).append(pil_image)
-    #         (inlier_num_patches if idx in inliers_idx else outlier_num_patches).append(num_patches)
-    #         (inlier_load_size if idx in inliers_idx else outlier_load_size).append(load_size)
-    #     image_paths = inlier_image_paths
-    #     descriptors_list = inlier_descriptors
-    #     saliency_maps_list = inlier_saliency_maps
-    #     image_pil_list = inlier_image_pil
-    #     num_patches_list = inlier_num_patches
-    #     load_size_list = inlier_load_size
-    #     num_images = len(inliers_idx)
 
     # cluster all images using k-means:
     all_descriptors = np.ascontiguousarray(np.concatenate(descriptors_list, axis=2)[0, 0])
@@ -302,24 +273,6 @@ def find_cosegmentation_ros(extractor: ViTExtractor, saliency_extractor: ViTExtr
                     # assuming single image only in list
                     latent_centroid = centroids[int(labels_per_image[0][y_patch * x_patch])]
                     latent_centroids.append(latent_centroid)
-            
-        
-    #TODO update to work with image input
-    # if remove_outliers:
-    #     outlier_segmentation_masks = []
-    #     for load_size in outlier_load_size:
-    #         outlier_segmentation_masks.append(Image.fromarray(np.zeros(load_size, dtype=bool)))
-
-    #     final_segmentation_masks, final_pil_images = [], []
-    #     for idx in range(len(imgs)):
-    #         if idx in inliers_idx:
-    #             final_segmentation_masks.append(segmentation_masks.pop(0))
-    #             final_pil_images.append(image_pil_list.pop(0))
-    #         else:
-    #             final_segmentation_masks.append(outlier_segmentation_masks.pop(0))
-    #             final_pil_images.append(outlier_image_pil.pop(0))
-    #     segmentation_masks = final_segmentation_masks
-    #     image_pil_list = final_pil_images
     
     return segmentation_masks, image_pil_list, latent_centroids, pos_centroids, reshaped_labels 
 

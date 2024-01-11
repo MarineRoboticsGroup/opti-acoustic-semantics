@@ -33,6 +33,7 @@ def show_similarity_interactive(image_path_a: str, load_size: int = 224, layer: 
      :param stride: stride of the model.
      :param model_type: type of model to extract descriptors from.
      :param num_sim_patches: number of most similar patches to plot.
+     :return list of descriptors that should not be used in mapping 
     """
     # extract descriptors
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -59,7 +60,7 @@ def show_similarity_interactive(image_path_a: str, load_size: int = 224, layer: 
 
     # start interactive loop
     # get input point from user
-    fig.suptitle('Select a point on the left image. \n Right click to stop.', fontsize=16)
+    fig.suptitle('Select a point on the left image. \n Right click when finished.', fontsize=16)
     plt.draw()
     pts = np.asarray(plt.ginput(1, timeout=-1, mouse_stop=plt.MouseButton.RIGHT, mouse_pop=None))
     while len(pts) == 1:
@@ -68,7 +69,6 @@ def show_similarity_interactive(image_path_a: str, load_size: int = 224, layer: 
         new_W = patch_size / stride * (load_size_a[1] // patch_size - 1) + 1
         y_descs_coor = int(new_H / load_size_a[0] * y_coor)
         x_descs_coor = int(new_W / load_size_a[1] * x_coor)
-        print(descs_a.shape, y_descs_coor, x_descs_coor, idx, num_patches_a)
 
         # reset previous marks
         for patch in visible_patches:
@@ -84,26 +84,18 @@ def show_similarity_interactive(image_path_a: str, load_size: int = 224, layer: 
 
         # get and draw current similarities
         raveled_desc_idx = num_patches_a[1] * y_descs_coor + x_descs_coor
-        reveled_desc_idx_including_cls = raveled_desc_idx + 1
-        curr_similarities = similarities[0, 0, reveled_desc_idx_including_cls, 1:]
+        raveled_desc_idx_including_cls = raveled_desc_idx + 1
+        curr_similarities = similarities[0, 0, raveled_desc_idx_including_cls, 1:]
         curr_similarities = curr_similarities.reshape(num_patches_a)
         axes[1].imshow(curr_similarities.cpu().numpy(), cmap='jet')
-
-        # get and draw most similar points
-        # sims, idxs = torch.topk(curr_similarities.flatten(), num_sim_patches)
-        # for idx, sim in zip(idxs, sims):
-        #     y_descs_coor, x_descs_coor = idx // num_patches_a[1], idx % num_patches_a[1]
-        #     center = ((x_descs_coor - 1) * stride + stride + patch_size // 2 - .5,
-        #               (y_descs_coor - 1) * stride + stride + patch_size // 2 - .5)
-        #     patch = plt.Circle(center, radius, color=(1, 0, 0, 0.75))
-        #     axes[2].add_patch(patch)
-        #     visible_patches.append(patch)
         plt.draw()
 
         # get input point from user
         fig.suptitle('Select a point on the left image', fontsize=16)
         plt.draw()
         pts = np.asarray(plt.ginput(1, timeout=-1, mouse_stop=plt.MouseButton.RIGHT, mouse_pop=None))
+    plt.close()
+    return descs_a[0, 0, raveled_desc_idx_including_cls, :].cpu().numpy()
 
 
 """ taken from https://stackoverflow.com/questions/15008758/parsing-boolean-values-with-argparse"""

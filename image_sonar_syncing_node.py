@@ -145,7 +145,7 @@ def image_sonar_callback(image_msg, sonar_msg):
                                                     args.facet, args.bin, args.thresh, args.model_type, args.stride,
                                                     args.votes_percentage, args.sample_interval,
                                                     args.remove_outliers, args.outliers_thresh,
-                                                    args.low_res_saliency_maps)#, curr_save_dir)
+                                                    args.low_res_saliency_maps, removal_obj_codes)#, curr_save_dir)
         
         # saving cosegmentations
         binary_mask_figs = draw_cosegmentation_binary_masks(seg_masks)
@@ -267,13 +267,16 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     CAM_FOV = args.cam_fov
+    removal_obj_codes = []
     
     # for each image in the directory, bring up a GUI to select objects to remove
     if args.remove_objects_image_dir:
         for image_path in os.listdir(args.remove_objects_image_dir):
             with torch.no_grad():
-                object_selection_gui.show_similarity_interactive(args.remove_objects_image_dir + "/" + image_path, args.load_size, args.layer, args.facet, 
+                removal_obj_code = object_selection_gui.show_similarity_interactive(args.remove_objects_image_dir + "/" + image_path, args.load_size, args.layer, args.facet, 
                                                              args.bin, args.stride, args.model_type)
+                removal_obj_codes.append(removal_obj_code)
+                
         
     
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
