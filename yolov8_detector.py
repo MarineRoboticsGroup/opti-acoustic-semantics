@@ -12,6 +12,7 @@ from semanticslam_ros.msg import ObjectsVector, ObjectVector
 from sensor_msgs.msg import CameraInfo, Image
 from ultralytics import YOLO
 from PIL import Image as PILImage
+from sensor_msgs.msg import Image as RosImage
 import sys
 
 np.set_printoptions(threshold=sys.maxsize)
@@ -52,6 +53,7 @@ class ClosedSetDetector:
         self.model = YOLO(model_file)
         rospy.loginfo("Model loaded")
         self.objs_pub = rospy.Publisher("/camera/objects", ObjectsVector, queue_size=10)
+        self.img_pub = rospy.Publisher("/camera/yolo_img", RosImage, queue_size=10)
         self.br = CvBridge()
 
         # Set up synchronized subscriber 
@@ -111,6 +113,16 @@ class ClosedSetDetector:
         for r in results:
             im_array = r.plot()  # plot a BGR numpy array of predictions
             im = PILImage.fromarray(im_array[..., ::-1])  # RGB PIL image
+            
+            msg_yolo_detections = RosImage()
+            msg_yolo_detections.header.stamp = rgb.header.stamp
+            msg_yolo_detections.height = im.height
+            msg_yolo_detections.width = im.width
+            msg_yolo_detections.encoding = "rgb8"
+            msg_yolo_detections.is_bigendian = False
+            msg_yolo_detections.step = 3 * im.width
+            msg_yolo_detections.data = np.array(im).tobytes()
+            self.img_pub.publish(msg_yolo_detections)
             # im.show()  # show image
             # im.save('results.jpg')  # save image
 
