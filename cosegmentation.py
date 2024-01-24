@@ -135,12 +135,13 @@ def find_cosegmentation_ros(extractor: ViTExtractor, saliency_extractor: ViTExtr
     
     # check if any of the salient labels' latent centroids are in the removal_obj_codes list
     # if so, remove them from the salient labels list
-    for obj_code in removal_obj_codes:
-        for label in salient_labels:
-            # check cosine similarity between centroid and obj_code
-            cos_sim = np.dot(obj_code, label)/(norm(obj_code)*norm(label))
-            if cos_sim > obj_removal_thresh:
-                salient_labels = np.delete(salient_labels, label)
+    if removal_obj_codes:
+        for obj_code in removal_obj_codes:
+            for label in salient_labels:
+                # check cosine similarity between centroid and obj_code
+                cos_sim = np.dot(obj_code, label)/(norm(obj_code)*norm(label))
+                if cos_sim > obj_removal_thresh:
+                    salient_labels = np.delete(salient_labels, label)
         
     
     # cluster saliency filtering and visualization
@@ -233,7 +234,13 @@ def find_cosegmentation_ros(extractor: ViTExtractor, saliency_extractor: ViTExtr
                             y_patch = int(centroid[1]/grabcut_mask.shape[0] * num_patches[1])
                             
                             # assuming single image only in list
-                            latent_centroid = centroids[int(labels_per_image[0][y_patch * x_patch])]
+                            print("Centroids shapes info")
+                            print(centroids.shape)
+                            print(labels.shape)
+                            print(labels_per_image[0].shape)
+                            print(x_patch, y_patch)
+                            latent_centroid = centroids[int(labels_per_image[0][y_patch * num_patches[1] + x_patch])]
+                            #latent_centroid = centroids[int(labels_per_image[0][y_patch * x_patch])]
                             latent_centroids.append(latent_centroid)        
         
         # now back to the fg/bg masks 

@@ -117,6 +117,7 @@ def ping_to_range(msg: OculusPing, angle: float) -> float:
 
 
 def image_sonar_callback(image_msg, sonar_msg):
+    print("Hit callback!")
     # global extractor, saliency_extractor, args, bridge, CAM_FOV, CAM_TO_SONAR_TF, SONAR_TO_CAM_TF
       # print(data.encoding)
     # try:
@@ -145,7 +146,7 @@ def image_sonar_callback(image_msg, sonar_msg):
                                                     args.facet, args.bin, args.thresh, args.model_type, args.stride,
                                                     args.votes_percentage, args.sample_interval,
                                                     args.remove_outliers, args.outliers_thresh,
-                                                    args.low_res_saliency_maps, removal_obj_codes, args.obj_removal_thresh)#, curr_save_dir)
+                                                    args.low_res_saliency_maps)
         
         # saving cosegmentations
         binary_mask_figs = draw_cosegmentation_binary_masks(seg_masks)
@@ -164,7 +165,7 @@ def image_sonar_callback(image_msg, sonar_msg):
     centroids_msg.header = image_msg.header
 
     for i, pos_cent in enumerate(pos_centroids):
-        bearing = pos_cent[0] * CAM_FOV
+        bearing = pos_cent[0] * CAM_FOV - CAM_FOV/2
         print(bearing) 
         range = ping_to_range(sonar_msg, bearing)
         print(range)
@@ -187,14 +188,11 @@ def image_sonar_callback(image_msg, sonar_msg):
     # publish 3D positions of cluster centroids
 
     cluster_pub.publish(centroids_msg)
-
-    cluster_img_pub = rospy.Publisher("/usb_cam/img_segmented", RosImage, queue_size=10)
-    fg_bg_img_pub = rospy.Publisher("/usb_cam/img_fg_bg", RosImage, queue_size=10)
     
     # for publishing segmentation masks (fg/bg)
     im_mask = seg_masks[0].convert('RGB') # assuming single image only in list
     msg_mask = RosImage()
-    msg_mask.header.stamp = rospy.Time.now()
+    msg_mask.header.stamp = image_msg.header.stamp
     msg_mask.height = im_mask.height
     msg_mask.width = im_mask.width
     msg_mask.encoding = "rgb8"
@@ -210,7 +208,7 @@ def image_sonar_callback(image_msg, sonar_msg):
     im = im.convert('RGB')
 
     msg = RosImage()
-    msg.header.stamp = rospy.Time.now()
+    msg.header.stamp = image_msg.header.stamp
     msg.height = im.height
     msg.width = im.width
     msg.encoding = "rgb8"
@@ -261,7 +259,7 @@ if __name__ == "__main__":
     parser.add_argument('--outliers_thresh', default=0.7, type=float, help="Threshold for removing outliers.")
     parser.add_argument('--low_res_saliency_maps', default='True', type=str2bool, help="using low resolution saliency "
                                                                                        "maps. Reduces RAM needs.")
-    parser.add_argument('--cam_fov', default=80, type=int, help="Camera field of view in degrees.")
+    parser.add_argument('--cam_fov', default=80, type=int, help="Camera field of view (horizontal) in degrees.")
     parser.add_argument('--cam_calibration_path', default='/home/singhk/data/building_1_pool/bluerov_1080_cal.yaml', type=str, help="Path to camera calibration yaml file.")
     parser.add_argument('--obj_removal_thresh', default=0.9, type=float, help="Cosine similarity threshold for removing objects from cosegmentation.")
     args = parser.parse_args()
@@ -300,12 +298,14 @@ if __name__ == "__main__":
 
     
     image_topic = "/usb_cam/image_raw_repub"
-    sonar_topic = "/sonar_horizontal/oculus_node/ping"
+    
+    # currently vertical and horizontal swapped due to IP address issue TODO fix 
+    sonar_topic = "/sonar_vertical/oculus_node/ping"
 
     image_sub = message_filters.Subscriber(image_topic, RosImage)
     sonar_sub = message_filters.Subscriber(sonar_topic, OculusPing)
 
-    ts = message_filters.ApproximateTimeSynchronizer([image_sub, sonar_sub], 10, 0.1, allow_headerless=True)
+    ts = message_filters.ApproximateTimeSynchronizer([image_sub, sonar_sub], 100, 100, allow_headerless=False)
     ts.registerCallback(image_sonar_callback)
     
     tfBuffer = tf2_ros.Buffer()
