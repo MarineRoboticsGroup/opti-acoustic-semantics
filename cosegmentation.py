@@ -239,7 +239,7 @@ def find_cosegmentation_ros(extractor: ViTExtractor, saliency_extractor: ViTExtr
                             print(labels.shape)
                             print(labels_per_image[0].shape)
                             print(x_patch, y_patch)
-                            latent_centroid = centroids[int(labels_per_image[0][y_patch * num_patches[1] + x_patch])]
+                            latent_centroid = centroids[int(labels_per_image[0][y_patch * num_patches[0] + x_patch])]
                             #latent_centroid = centroids[int(labels_per_image[0][y_patch * x_patch])]
                             latent_centroids.append(latent_centroid)        
         

@@ -94,7 +94,7 @@ def ping_to_range(msg: OculusPing, angle: float) -> float:
     # image is num_ranges x num_beams
     for beam in range(0, len(az)):
         if (az[beam] >= angle - angular_res/2) and (az[beam] <= angle + angular_res/2):
-            print(az[beam], angle, angular_res/2)
+            #print(az[beam], angle, angular_res/2)
             idx = np.argmax(ping[:, beam])
             if ping[idx, beam] > THRESHOLD:
                 # beam range
@@ -236,10 +236,10 @@ if __name__ == "__main__":
     parser.add_argument('--remove_objects_image_dir', default=None, type=str, required=False, help='The root dir of images that contain'
                                                                                     'to remove. A GUI to select objects'
                                                                                     'will appear.')
-    parser.add_argument('--load_size', default=360, type=int, help='load size of the input images. If None maintains'
+    parser.add_argument('--load_size', default=350, type=int, help='load size of the input images. If None maintains'
                                                                     'original image size, if int resizes each image'
                                                                     'such that the smaller side is this number.')
-    parser.add_argument('--stride', default=8, type=int, help="""stride of first convolution layer. 
+    parser.add_argument('--stride', default=4, type=int, help="""stride of first convolution layer. 
                                                                  small stride -> higher resolution.""")
     parser.add_argument('--model_type', default='dino_vits8', type=str,
                         help="""type of model to extract. 
