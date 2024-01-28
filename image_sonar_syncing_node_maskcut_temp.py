@@ -1,3 +1,5 @@
+#/home/jungseok/venvs/cutler/bin/python
+
 from cv_bridge import CvBridge, CvBridgeError
 import cv2
 
@@ -16,7 +18,7 @@ import object_selection_gui
 import numpy as np
 import argparse
 from PIL import Image
-from cosegmentation import find_cosegmentation_ros, draw_cosegmentation_binary_masks, draw_cosegmentation
+from cosegmentation_maskcut import find_cosegmentation_ros, draw_cosegmentation_binary_masks, draw_cosegmentation
 import torch
 import io
 import os
@@ -142,12 +144,21 @@ def image_sonar_callback(image_msg, sonar_msg):
         ims_pil = [im_pil] # list for future extension to cosegmentation of multiple images
 
         # computing cosegmentation
-        seg_masks, pil_images, centroids, pos_centroids, clustered_arrays = find_cosegmentation_ros(extractor, saliency_extractor, ims_pil, args.elbow, args.load_size, args.layer,
-                                                    args.facet, args.bin, args.thresh, args.model_type, args.stride,
-                                                    args.votes_percentage, args.sample_interval,
-                                                    args.remove_outliers, args.outliers_thresh,
-                                                    args.low_res_saliency_maps)
+        # seg_masks, pil_images, centroids, pos_centroids, clustered_arrays = find_cosegmentation_ros(extractor, saliency_extractor, ims_pil, args.elbow, args.load_size, args.layer,
+        #                                             args.facet, args.bin, args.thresh, args.model_type, args.stride,
+        #                                             args.votes_percentage, args.sample_interval,
+        #                                             args.remove_outliers, args.outliers_thresh,
+        #                                             args.low_res_saliency_maps)
         
+
+        ## [TODO]: update this function
+        seg_masks, pil_images, centroids, pos_centroids = find_cosegmentation_ros(extractor, saliency_extractor, ims_pil, args.elbow, args.load_size, args.layer,
+                                            args.facet, args.bin, args.thresh, args.model_type, args.stride,
+                                            args.votes_percentage, args.sample_interval,
+                                            args.remove_outliers, args.outliers_thresh,
+                                            args.low_res_saliency_maps)
+
+
         # saving cosegmentations
         binary_mask_figs = draw_cosegmentation_binary_masks(seg_masks)
         chessboard_bg_figs = draw_cosegmentation(seg_masks, pil_images)
@@ -203,7 +214,8 @@ def image_sonar_callback(image_msg, sonar_msg):
     fg_bg_img_pub.publish(msg_mask)    
     
     # for publishing cluster images
-    normalizedClusters = (clustered_arrays-np.min(clustered_arrays))/(np.max(clustered_arrays)-np.min(clustered_arrays))
+    # normalizedClusters = (clustered_arrays-np.min(clustered_arrays))/(np.max(clustered_arrays)-np.min(clustered_arrays))
+    # TODO: maybe masks image for this.
     im = Image.fromarray(np.uint8(cm.jet(normalizedClusters)*255))
     im = im.convert('RGB')
 
@@ -236,7 +248,7 @@ if __name__ == "__main__":
     parser.add_argument('--remove_objects_image_dir', default=None, type=str, required=False, help='The root dir of images that contain'
                                                                                     'to remove. A GUI to select objects'
                                                                                     'will appear.')
-    parser.add_argument('--load_size', default=350, type=int, help='load size of the input images. If None maintains'
+    parser.add_argument('--load_size', default=180, type=int, help='load size of the input images. If None maintains'
                                                                     'original image size, if int resizes each image'
                                                                     'such that the smaller side is this number.')
     parser.add_argument('--stride', default=4, type=int, help="""stride of first convolution layer. 

@@ -18,7 +18,7 @@ import object_selection_gui
 import numpy as np
 import argparse
 from PIL import Image
-from cosegmentation import find_cosegmentation_ros, draw_cosegmentation_binary_masks, draw_cosegmentation
+from cosegmentation_maskcut import find_cosegmentation_ros, draw_cosegmentation_binary_masks, draw_cosegmentation
 import torch
 import io
 import os
@@ -152,16 +152,19 @@ def image_sonar_callback(image_msg, sonar_msg):
         
 
         ## [TODO]: update this function
-        seg_masks, pil_images, centroids, pos_centroids = find_cosegmentation_ros(extractor, saliency_extractor, ims_pil, args.elbow, args.load_size, args.layer,
-                                            args.facet, args.bin, args.thresh, args.model_type, args.stride,
-                                            args.votes_percentage, args.sample_interval,
-                                            args.remove_outliers, args.outliers_thresh,
-                                            args.low_res_saliency_maps)
+        # seg_masks, pil_images, centroids, pos_centroids = find_cosegmentation_ros(extractor, saliency_extractor, ims_pil, args.elbow, args.load_size, args.layer,
+        #                                     args.facet, args.bin, args.thresh, args.model_type, args.stride,
+        #                                     args.votes_percentage, args.sample_interval,
+        #                                     args.remove_outliers, args.outliers_thresh,
+        #                                     args.low_res_saliency_maps)
+
+        seg_masks, img_out, centroids, pos_centroids  = maskcut_demo(None, ims_pil, backbone, args.patch_size, 
+                                                                args.tau, args.N, args.fixed_size, args.cpu, output_path=None)
 
 
         # saving cosegmentations
-        binary_mask_figs = draw_cosegmentation_binary_masks(seg_masks)
-        chessboard_bg_figs = draw_cosegmentation(seg_masks, pil_images)
+        # binary_mask_figs = draw_cosegmentation_binary_masks(seg_masks)
+        # chessboard_bg_figs = draw_cosegmentation(seg_masks, pil_images)
 
 
     # transform clusters into sonar frame
@@ -216,7 +219,7 @@ def image_sonar_callback(image_msg, sonar_msg):
     # for publishing cluster images
     # normalizedClusters = (clustered_arrays-np.min(clustered_arrays))/(np.max(clustered_arrays)-np.min(clustered_arrays))
     # TODO: maybe masks image for this.
-    im = Image.fromarray(np.uint8(cm.jet(normalizedClusters)*255))
+    im = Image.fromarray(img_out)
     im = im.convert('RGB')
 
     msg = RosImage()
@@ -274,8 +277,53 @@ if __name__ == "__main__":
     parser.add_argument('--cam_fov', default=80, type=int, help="Camera field of view (horizontal) in degrees.")
     parser.add_argument('--cam_calibration_path', default='/home/jungseok/Downloads/bluerov_1080_cal.yaml', type=str, help="Path to camera calibration yaml file.")
     parser.add_argument('--obj_removal_thresh', default=0.9, type=float, help="Cosine similarity threshold for removing objects from cosegmentation.")
+    
+    
+    ###########
+    
+    parser.add_argument('--out-dir', type=str, help='output directory')
+    parser.add_argument('--vit-arch', type=str, default='small', choices=['base', 'small'], help='which architecture')
+    parser.add_argument('--vit-feat', type=str, default='k', choices=['k', 'q', 'v', 'kqv'], help='which features')
+    parser.add_argument('--patch-size', type=int, default=8, choices=[16, 8], help='patch size')
+    parser.add_argument('--img-path', type=str, default=None, help='single image visualization')
+    parser.add_argument('--tau', type=float, default=0.15, help='threshold used for producing binary graph')
+
+    # additional arguments
+    parser.add_argument('--fixed_size', type=int, default=480, help='rescale the input images to a fixed size')
+    parser.add_argument('--pretrain_path', type=str, default=None, help='path to pretrained model')
+    parser.add_argument('--N', type=int, default=3, help='the maximum number of pseudo-masks per image')
+    parser.add_argument('--cpu', action='store_true', help='use cpu')
+    parser.add_argument('--output_path', type=str,  default='', help='path to save outputs')
+
+    
+    
+    
+    
     args = parser.parse_args()
     
+    ############
+    if args.pretrain_path is not None:
+        url = args.pretrain_path
+    if args.vit_arch == 'base' and args.patch_size == 8:
+        if args.pretrain_path is None:
+            url = "https://dl.fbaipublicfiles.com/dino/dino_vitbase8_pretrain/dino_vitbase8_pretrain.pth"
+        feat_dim = 768
+    elif args.vit_arch == 'small' and args.patch_size == 8:
+        if args.pretrain_path is None:
+            url = "https://dl.fbaipublicfiles.com/dino/dino_deitsmall8_300ep_pretrain/dino_deitsmall8_300ep_pretrain.pth"
+        feat_dim = 384
+
+    backbone = dino.ViTFeat(url, feat_dim, args.vit_arch, args.vit_feat, args.patch_size)
+
+    msg = 'Load {} pre-trained feature...'.format(args.vit_arch)
+    print (msg)
+    backbone.eval()
+    if not args.cpu:
+        backbone.cuda()
+    ##############
+
+
+
     CAM_FOV = args.cam_fov
     removal_obj_codes = []
     
@@ -289,12 +337,12 @@ if __name__ == "__main__":
                 
         
     
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    extractor = ViTExtractor(args.model_type, args.stride, device=device)
-    if args.low_res_saliency_maps:
-        saliency_extractor = ViTExtractor(args.model_type, stride=8, device=device)
-    else:
-        saliency_extractor = extractor
+    # device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    # extractor = ViTExtractor(args.model_type, args.stride, device=device)
+    # if args.low_res_saliency_maps:
+    #     saliency_extractor = ViTExtractor(args.model_type, stride=8, device=device)
+    # else:
+    #     saliency_extractor = extractor
     bridge = CvBridge()
     
     
