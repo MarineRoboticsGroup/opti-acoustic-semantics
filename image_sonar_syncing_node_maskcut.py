@@ -27,6 +27,8 @@ from matplotlib import cm
 from extractor import ViTExtractor
 import yaml
 
+from CutLER.maskcut.demo_maskcut import maskcut_demo
+from CutLER.maskcut import dino
 
 
 
@@ -143,20 +145,6 @@ def image_sonar_callback(image_msg, sonar_msg):
         im_pil = Image.fromarray(cv_image)    
         ims_pil = [im_pil] # list for future extension to cosegmentation of multiple images
 
-        # computing cosegmentation
-        # seg_masks, pil_images, centroids, pos_centroids, clustered_arrays = find_cosegmentation_ros(extractor, saliency_extractor, ims_pil, args.elbow, args.load_size, args.layer,
-        #                                             args.facet, args.bin, args.thresh, args.model_type, args.stride,
-        #                                             args.votes_percentage, args.sample_interval,
-        #                                             args.remove_outliers, args.outliers_thresh,
-        #                                             args.low_res_saliency_maps)
-        
-
-        ## [TODO]: update this function
-        # seg_masks, pil_images, centroids, pos_centroids = find_cosegmentation_ros(extractor, saliency_extractor, ims_pil, args.elbow, args.load_size, args.layer,
-        #                                     args.facet, args.bin, args.thresh, args.model_type, args.stride,
-        #                                     args.votes_percentage, args.sample_interval,
-        #                                     args.remove_outliers, args.outliers_thresh,
-        #                                     args.low_res_saliency_maps)
 
         seg_masks, img_out, centroids, pos_centroids  = maskcut_demo(None, ims_pil, backbone, args.patch_size, 
                                                                 args.tau, args.N, args.fixed_size, args.cpu, output_path=None)
@@ -204,7 +192,7 @@ def image_sonar_callback(image_msg, sonar_msg):
     cluster_pub.publish(centroids_msg)
     
     # for publishing segmentation masks (fg/bg)
-    im_mask = seg_masks[0].convert('RGB') # assuming single image only in list
+    im_mask = Image.fromarray(seg_masks[0]*255).convert('RGB')
     msg_mask = RosImage()
     msg_mask.header.stamp = image_msg.header.stamp
     msg_mask.height = im_mask.height
@@ -216,12 +204,9 @@ def image_sonar_callback(image_msg, sonar_msg):
 
     fg_bg_img_pub.publish(msg_mask)    
     
-    # for publishing cluster images
-    # normalizedClusters = (clustered_arrays-np.min(clustered_arrays))/(np.max(clustered_arrays)-np.min(clustered_arrays))
-    # TODO: maybe masks image for this.
-    im = Image.fromarray(img_out)
+    # for publishing segmented images
+    im = img_out
     im = im.convert('RGB')
-
     msg = RosImage()
     msg.header.stamp = image_msg.header.stamp
     msg.height = im.height
@@ -279,7 +264,7 @@ if __name__ == "__main__":
     parser.add_argument('--obj_removal_thresh', default=0.9, type=float, help="Cosine similarity threshold for removing objects from cosegmentation.")
     
     
-    ###########
+    ########### this is for MaskCUT
     
     parser.add_argument('--out-dir', type=str, help='output directory')
     parser.add_argument('--vit-arch', type=str, default='small', choices=['base', 'small'], help='which architecture')
@@ -301,7 +286,7 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
     
-    ############
+    ############ this is for MaskCUT
     if args.pretrain_path is not None:
         url = args.pretrain_path
     if args.vit_arch == 'base' and args.patch_size == 8:
