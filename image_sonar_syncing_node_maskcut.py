@@ -142,7 +142,8 @@ def image_sonar_callback(image_msg, sonar_msg):
             cv_image = bridge.imgmsg_to_cv2(image_msg, "passthrough")
         except CvBridgeError as e:
             print(e)
-        im_pil = Image.fromarray(cv_image)    
+        im_pil = Image.fromarray(cv_image)
+        # print(f'image size: {im_pil.size}') # 1920, 1080   
         ims_pil = [im_pil] # list for future extension to cosegmentation of multiple images
 
 
