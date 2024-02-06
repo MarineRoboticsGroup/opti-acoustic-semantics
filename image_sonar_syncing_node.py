@@ -85,6 +85,7 @@ def ping_to_range(msg: OculusPing, angle: float) -> float:
     # pre-process ping
     #ping = self.sonar.deconvolve(img)
     ping = img
+    print(ping)
 
     angle = angle * np.pi / 180 # convert to radians
     angular_res = 2.268928027592628 / 512 # radians for oculus m1200d assuming even spacing TODO angles aren't evenly spaced for oculus

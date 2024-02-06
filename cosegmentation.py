@@ -221,6 +221,7 @@ def find_cosegmentation_ros(extractor: ViTExtractor, saliency_extractor: ViTExtr
                         
                         # filters: size, contact with edge of frame 
                         # grabcut shape dimensions are swapped compared to opencv stats 
+                        print("size: ", stat[4])
                         if stat[4] < MIN_SIZE or stat[0] == 0 or stat[1] == 0 or stat[0] + stat[2] == grabcut_mask.shape[1] or stat[1] + stat[3] == grabcut_mask.shape[0]:
                             continue
                         else:

@@ -66,10 +66,17 @@ class ClosedSetDetector:
         
         # Set up synchronized subscriber
         # TUM PARAMS 
-        cam_info_topic = rospy.get_param("cam_info_topic", "/camera/rgb/camera_info")
-        rgb_topic = rospy.get_param("rgb_topic", "/camera/rgb/image_color")
+        # cam_info_topic = rospy.get_param("cam_info_topic", "/camera/rgb/camera_info")
+        # rgb_topic = rospy.get_param("rgb_topic", "/camera/rgb/image_color")
+        # depth_topic = rospy.get_param(
+        #     "depth_topic", "/camera/depth/image"
+        # )
+        
+        # JACKAL PARAMS
+        cam_info_topic = rospy.get_param("cam_info_topic", "/camera/color/camera_info")
+        rgb_topic = rospy.get_param("rgb_topic", "/camera/color/image_raw")
         depth_topic = rospy.get_param(
-            "depth_topic", "/camera/depth/image"
+            "depth_topic", "/camera/aligned_depth_to_color/image_raw"
         )
         self.cam_info_sub = message_filters.Subscriber(
             cam_info_topic, CameraInfo, queue_size=1
@@ -97,13 +104,13 @@ class ClosedSetDetector:
 
         image_cv = self.br.imgmsg_to_cv2(rgb, desired_encoding="bgr8")
         depth_m = (
-            self.br.imgmsg_to_cv2(depth, desired_encoding="passthrough") # / 1000.0 # for TUM depth is in meters already, for realsense it is in mm
+            self.br.imgmsg_to_cv2(depth, desired_encoding="passthrough") / 1000.0 # for TUM depth is in meters already, for realsense it is in mm
         )  # Depth in meters
-        # depth_m = cv2.resize(depth_m, dsize=(1280, 736), interpolation=cv2.INTER_NEAREST) # do this for realsense (img dim not a multiple of max stride length 32)
+        depth_m = cv2.resize(depth_m, dsize=(1280, 736), interpolation=cv2.INTER_NEAREST) # do this for realsense (img dim not a multiple of max stride length 32)
 
         # Run inference args: https://docs.ultralytics.com/modes/predict/#inference-arguments
-        # results = self.model(image_cv, verbose=False, conf=CONF_THRESH, imgsz=(736, 1280))[0] do this for realsense (img dim not a multiple of max stride length 32)
-        results = self.model(image_cv, verbose=False, conf=CONF_THRESH)[0]
+        results = self.model(image_cv, verbose=False, conf=CONF_THRESH, imgsz=(736, 1280))[0] # do this for realsense (img dim not a multiple of max stride length 32)
+        #results = self.model(image_cv, verbose=False, conf=CONF_THRESH)[0]
 
         # Extract segmentation masks
         if (results.boxes is None) or (results.masks is None):
@@ -142,7 +149,7 @@ class ClosedSetDetector:
             print(conf)
             mask = mask > 0  # Convert to binary 
             #print(mask)
-            obj_depth = np.nanmean(depth_m[mask], dtype=float)
+            obj_depth = np.nanmean(depth_m[mask], dtype=float)             
             obj_centroid = np.mean(np.argwhere(mask), axis=0)
             print(obj_centroid)
 
