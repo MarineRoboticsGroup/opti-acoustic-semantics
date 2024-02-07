@@ -341,7 +341,6 @@ if __name__ == "__main__":
     cluster_img_pub = rospy.Publisher("/camera/img_segmented", RosImage, queue_size=10)
     fg_bg_img_pub = rospy.Publisher("/camera/img_fg_bg", RosImage, queue_size=10)
     cluster_pub = rospy.Publisher("/camera/objects", ObjectsVector, queue_size=10)
-
     
     image_topic = "/usb_cam/image_raw_repub"
     
