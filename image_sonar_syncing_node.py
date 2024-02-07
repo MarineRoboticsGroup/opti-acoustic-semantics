@@ -80,12 +80,12 @@ def ping_to_range(msg: OculusPing, angle: float) -> float:
     angle: angle in degrees 
     Convert sonar ping to range (take most intense return on beam) at given angle.
     """
-    img = bridge.imgmsg_to_cv2(msg.ping, desired_encoding="passthrough")
+    img = bridge.compressed_imgmsg_to_cv2(msg.ping, desired_encoding="passthrough")
     
     # pre-process ping
     #ping = self.sonar.deconvolve(img)
     ping = img
-    print(ping)
+    #print(ping)
 
     angle = angle * np.pi / 180 # convert to radians
     angular_res = 2.268928027592628 / 512 # radians for oculus m1200d assuming even spacing TODO angles aren't evenly spaced for oculus
@@ -161,7 +161,7 @@ def image_sonar_callback(image_msg, sonar_msg):
     # publish 3D positions of cluster centroids 
 
     # 0,0 top left, 1,1 bottom right
-    # x down, y right, z forwards
+    # x right, y down, z forwards
     centroids_msg = ObjectsVector()
     centroids_msg.header = image_msg.header
 

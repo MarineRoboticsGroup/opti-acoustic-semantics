@@ -1,0 +1,1 @@
+/camera/img_fg_bg /camera/img_segmented /camera/objects /depth_converter/depth /odometry/differential /sonar_vertical/oculus_node/ping /sonar_vertical/oculus_ranger/cloud /sonar_vertical/oculus_viewer/image /tf /tf_static /usb_cam/camera_info /usb_cam/image_raw/compressed /usb_cam/image_raw_repub 
