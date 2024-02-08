@@ -88,7 +88,7 @@ def ping_to_range(msg: OculusPing, angle: float) -> float:
     #print(ping)
 
     angle = angle * np.pi / 180 # convert to radians
-    angular_res = 2.268928027592628 / 512 # radians for oculus m1200d assuming even spacing TODO angles aren't evenly spaced for oculus
+    angular_res = 2.268928027592628 / 512 # radians for oculus m1200d lf and m750d hf/lf assuming even spacing
     r = np.linspace(0, msg.fire_msg.range,num=msg.num_ranges)
     az = to_rad(np.asarray(msg.bearings, dtype=np.float32))
 
@@ -287,10 +287,14 @@ if __name__ == "__main__":
     bridge = CvBridge()
     
     
-    with open(args.cam_calibration_path,'r') as stream:
-        cam_info = yaml.safe_load(stream)
+    # with open(args.cam_calibration_path,'r') as stream:
+    #     cam_info = yaml.safe_load(stream)
             
-    K = np.array(cam_info['camera_matrix']['data']).reshape(3,3)
+    # K = np.array(cam_info['camera_matrix']['data']).reshape(3,3)
+    K = np.array([836.099567860050, 0, 611.109888034219, 0, 837.192903639875, 548.074527090229, 0, 0, 1]).reshape(3,3)
+    
+    # calibration done at 1055 x 1850 but images at 600 x 800. Not scaled equally across dimensions? Calibraiton wrong? 
+    K = K * 0.5 
     print("Camera intrinsics: ", K)
 
     cluster_img_pub = rospy.Publisher("/camera/img_segmented", RosImage, queue_size=10)
