@@ -302,10 +302,10 @@ if __name__ == "__main__":
     cluster_pub = rospy.Publisher("/camera/objects", ObjectsVector, queue_size=10)
 
     
-    image_topic = "/usb_cam/image_raw_repub"
+    image_topic = "/kelpie/usb_cam/image_raw_repub"
     
     # currently vertical and horizontal swapped due to IP address issue TODO fix 
-    sonar_topic = "/sonar_vertical/oculus_node/ping"
+    sonar_topic = "/sonar_oculus_node/M750d/ping"
 
     image_sub = message_filters.Subscriber(image_topic, RosImage)
     sonar_sub = message_filters.Subscriber(sonar_topic, OculusPing)
