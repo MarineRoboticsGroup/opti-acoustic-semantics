@@ -77,8 +77,8 @@ def ping_to_range(msg: OculusPing, angle: float) -> float:
     angle: angle in degrees 
     Convert sonar ping to range (take most intense return on beam) at given angle.
     """
-    #img = bridge.compressed_imgmsg_to_cv2(msg.ping, desired_encoding="passthrough")
-    img = bridge.imgmsg_to_cv2(msg.ping, desired_encoding="passthrough")
+    img = bridge.compressed_imgmsg_to_cv2(msg.ping, desired_encoding="passthrough")
+    #img = bridge.imgmsg_to_cv2(msg.ping, desired_encoding="passthrough")
 
     # pre-process ping
     #ping = self.sonar.deconvolve(img)
