@@ -122,7 +122,7 @@ class ClosedSetDetector:
         # sdr bluerov params 
         rgb_topic = rospy.get_param("rgb_topic", "/usb_cam/image_raw_repub")
         depth_topic = rospy.get_param(
-            "depth_topic", "/sonar_vertical/oculus_node/ping"
+            "depth_topic", "/sonar_oculus_node/M750d/ping"
         )
 
         self.rgb_img_sub = message_filters.Subscriber(rgb_topic, Image, queue_size=1)
