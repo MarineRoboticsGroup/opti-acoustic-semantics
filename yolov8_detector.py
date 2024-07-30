@@ -22,14 +22,41 @@ CONF_THRESH = 0.25  # Confidence threshold used for YOLO, default is 0.25
 EMBEDDING_LEN = 512  # Length of the embedding vector, default is 512
 
 
+# def unproject(u, v, depth, cam_info):
+#     """
+#     Unproject a single pixel to 3D space
+#     """
+#     fx = cam_info.K[0]
+#     fy = cam_info.K[4]
+#     cx = cam_info.K[2]
+#     cy = cam_info.K[5]
+#     x = (u - cx) * depth / fx
+#     y = (v - cy) * depth / fy
+#     print("x: ", x)
+#     print("y: ", y)
+#     print("depth: ", depth)
+#     print("fx: ", fx)
+#     print("fy: ", fy)
+#     print("cx: ", cx)
+#     print("cy: ", cy)
+#     return x, y, depth
+
+
+# modified for KITTI dataset
 def unproject(u, v, depth, cam_info):
     """
     Unproject a single pixel to 3D space
     """
-    fx = cam_info.K[0]
-    fy = cam_info.K[4]
-    cx = cam_info.K[2]
-    cy = cam_info.K[5]
+    P = np.array(cam_info.P).reshape(3,4)
+    print("Camera projection matrix: ", P)
+    K = P[:, :3]
+    print("Camera intrinsic matrix: ", K)
+    
+    fx = K[0,0]
+    fy = K[1,1]
+    cx = K[0,2]
+    cy = K[1,2]
+    
     x = (u - cx) * depth / fx
     y = (v - cy) * depth / fy
     print("x: ", x)
@@ -40,7 +67,6 @@ def unproject(u, v, depth, cam_info):
     print("cx: ", cx)
     print("cy: ", cy)
     return x, y, depth
-
 
 class ClosedSetDetector:
     """
@@ -73,11 +99,19 @@ class ClosedSetDetector:
         # )
         
         # JACKAL PARAMS
-        cam_info_topic = rospy.get_param("cam_info_topic", "/camera/color/camera_info")
-        rgb_topic = rospy.get_param("rgb_topic", "/camera/color/image_raw")
+        # cam_info_topic = rospy.get_param("cam_info_topic", "/camera/color/camera_info")
+        # rgb_topic = rospy.get_param("rgb_topic", "/camera/color/image_raw")
+        # depth_topic = rospy.get_param(
+        #     "depth_topic", "/camera/aligned_depth_to_color/image_raw"
+        # )
+        
+        # KITTI PARAMS
+        cam_info_topic = rospy.get_param("cam_info_topic", "/kitti/camera_color_left/camera_info")
+        rgb_topic = rospy.get_param("rgb_topic", "/kitti/camera_color_left/image")
         depth_topic = rospy.get_param(
-            "depth_topic", "/camera/aligned_depth_to_color/image_raw"
+            "depth_topic", "/depth_image_millimeters"
         )
+        
         self.cam_info_sub = message_filters.Subscriber(
             cam_info_topic, CameraInfo, queue_size=1
         )
@@ -106,10 +140,10 @@ class ClosedSetDetector:
         depth_m = (
             self.br.imgmsg_to_cv2(depth, desired_encoding="passthrough") / 1000.0 # for TUM depth is in meters already, for realsense it is in mm
         )  # Depth in meters
-        depth_m = cv2.resize(depth_m, dsize=(1280, 736), interpolation=cv2.INTER_NEAREST) # do this for realsense (img dim not a multiple of max stride length 32)
+        depth_m = cv2.resize(depth_m, dsize=(1280, 384), interpolation=cv2.INTER_NEAREST) # do this for realsense (img dim not a multiple of max stride length 32)
 
         # Run inference args: https://docs.ultralytics.com/modes/predict/#inference-arguments
-        results = self.model(image_cv, verbose=False, conf=CONF_THRESH, imgsz=(736, 1280))[0] # do this for realsense (img dim not a multiple of max stride length 32)
+        results = self.model(image_cv, verbose=False, conf=CONF_THRESH, imgsz=(384, 1280))[0] # do this for realsense (img dim not a multiple of max stride length 32)
         #results = self.model(image_cv, verbose=False, conf=CONF_THRESH)[0]
 
         # Extract segmentation masks

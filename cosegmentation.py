@@ -13,7 +13,7 @@ import cv2
 from typing import List, Tuple
 from numpy.linalg import norm
 
-MIN_SIZE = 1000 # in pixels 
+MIN_SIZE = 500 # in pixels 
 sparse_setting = False # if we are in an environment with very few objects, this will be more effective
 
 

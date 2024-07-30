@@ -55,32 +55,23 @@ def str2bool(v):
     else:
         raise argparse.ArgumentTypeError('Boolean value expected.')
 
-def pixel_to_3d(u, v, depth, projection_matrix, image_width, image_height):
-    # Check if the projection matrix is 3x4, if so, extend it to 4x4
-    if projection_matrix.shape == (3, 4):
-        projection_matrix = np.vstack([projection_matrix, [0, 0, 0, 1]])
-    elif projection_matrix.shape != (4, 4):
-        raise ValueError("Projection matrix must be 3x4 or 4x4")
-    
-    # Step 1: Convert pixel coordinates to NDC
-    x_ndc = (2 * u / image_width) - 1
-    y_ndc = 1 - (2 * v / image_height)
+def unproject(
+    u,
+    v,
+    z,
+    K: np.ndarray,
+):
+    """
+    Given pixel coordinates (u, v) and depth z, return 3D point in camera frame
+    """
+    fx = K[0,0]
+    fy = K[1,1]
+    cx = K[0,2]
+    cy = K[1,2]
+    x = (u - cx) * z / fx
+    y = (v - cy) * z / fy
+    return np.array([x, y, z])
 
-    # Step 2: Convert NDC to Homogeneous Clip Coordinates
-    clip_homogeneous = np.array([x_ndc * depth, y_ndc * depth, depth, 1])
-
-    # Step 3: Inverse Projection Matrix
-    projection_matrix_inv = np.linalg.inv(projection_matrix)
-
-    # Step 4: Back-project to Camera Coordinates
-    camera_homogeneous = np.dot(projection_matrix_inv, clip_homogeneous)
-
-    # Step 5: Convert Homogeneous Coordinates to 3D World Coordinates
-    X = camera_homogeneous[0] / camera_homogeneous[3]
-    Y = camera_homogeneous[1] / camera_homogeneous[3]
-    Z = camera_homogeneous[2] / camera_homogeneous[3]
-
-    return X, Y, Z
 
 def image_depth_callback(image_msg, depth_msg):
     print("new object message")
@@ -132,7 +123,7 @@ def image_depth_callback(image_msg, depth_msg):
         
         # for TUM rosbags, depth is already in meters 
         range = depth_array[y_pix, x_pix] / 1000.0 # convert to meters
-        x, y, z = pixel_to_3d(x_pix, y_pix, range, P, image_msg.width, image_msg.height)
+        x, y, z = unproject(x_pix, y_pix, range, K)
         print(x, y, z)
         centroid_msg = ObjectVector()
         centroid_msg.geometric_centroid.x = x
@@ -236,6 +227,8 @@ if __name__ == "__main__":
     cam_info_msg = rospy.wait_for_message(cam_info_topic, CameraInfo)
     P = np.array(cam_info_msg.P).reshape(3,4)
     print("Camera projection matrix: ", P)
+    K = P[:, :3]
+    print("Camera intrinsic matrix: ", K)
 
     cluster_img_pub = rospy.Publisher("/camera/img_segmented", RosImage, queue_size=10)
     fg_bg_img_pub = rospy.Publisher("/camera/img_fg_bg", RosImage, queue_size=10)
