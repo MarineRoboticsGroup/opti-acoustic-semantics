@@ -6,6 +6,7 @@ import networkx as nx # for plotting graphs
 import numpy as np
 from scipy.spatial.distance import pdist, squareform
 import functools
+import BytesIO
 
 import rospy
 import message_filters
@@ -15,28 +16,19 @@ from semanticslam_ros.msg import ObjectsVector, ObjectVector
 pygm.set_backend('pytorch') # set default backend for pygmtools
 _ = torch.manual_seed(1) # fix random seed
 
-
+    
 class GraphMatcher:
     """
     Matches subgraph to a larger graph using Quadratic Assignment Problem (QAP)
     """
-
+    
     def __init__(self) -> None:
         assert torch.cuda.is_available()
-        
-        subgraph_topic = rospy.get_param("~subgraph_topic", "/landmark_features")
-        fullgraph_topic = rospy.get_param("~fullgraph_topic", "/landmark_features")
-        
-        self.subgraph_sub = message_filters.Subscriber(subgraph_topic, ObjectsVector, queue_size=1)
-        self.fullgraph_sub = message_filters.Subscriber(fullgraph_topic, ObjectsVector, queue_size=1)
-        self.sync = message_filters.ApproximateTimeSynchronizer(
-            (self.subgraph_sub, self.fullgraph_sub), 1, 0.025
-        )
-
-        self.sync.registerCallback(self.match)
-
-        
-
+        with open("kitti_map.txt", 'rb') as binary_file:
+            serialized_bytes = binary_file.read()
+            fullgraph = ObjectsVector()
+            fullgraph.deserialize(serialized_bytes)
+            print(fullgraph)
     # def create_edge_features(node_positions):
     #     """
     #     Create edge features as Euclidean distances between node positions.
