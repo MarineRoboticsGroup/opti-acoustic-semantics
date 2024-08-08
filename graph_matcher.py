@@ -6,7 +6,7 @@ import networkx as nx # for plotting graphs
 import numpy as np
 from scipy.spatial.distance import pdist, squareform
 import functools
-import BytesIO
+from io import BytesIO
 
 import rospy
 import message_filters
@@ -25,10 +25,12 @@ class GraphMatcher:
     def __init__(self) -> None:
         assert torch.cuda.is_available()
         with open("kitti_map.txt", 'rb') as binary_file:
-            serialized_bytes = binary_file.read()
-            fullgraph = ObjectsVector()
-            fullgraph.deserialize(serialized_bytes)
-            print(fullgraph)
+            buf = BytesIO(binary_file.read())
+            bytes = buf.getvalue()
+            self.fullgraph = ObjectsVector()
+            self.fullgraph.deserialize(bytes)
+            self.subgraph = self.fullgraph
+            
     # def create_edge_features(node_positions):
     #     """
     #     Create edge features as Euclidean distances between node positions.
@@ -67,16 +69,16 @@ class GraphMatcher:
         # Extract nodes and edges from subgraph and fullgraph
         
         # Latent centroids are to be used as node features
-        subgraph_nodes = [obj.latent_centroid for obj in subgraph.objects]
+        subgraph_nodes = [obj.latent_centroid for obj in subgraph.objects][::3]
         fullgraph_nodes = [obj.latent_centroid for obj in fullgraph.objects]
-        subgraph_nodes = torch.tensor([subgraph_nodes])
-        fullgraph_nodes = torch.tensor([fullgraph_nodes])
+        subgraph_nodes = torch.tensor(subgraph_nodes)
+        fullgraph_nodes = torch.tensor(fullgraph_nodes)
         
-        # Geometric centroids are to be used as node positions, which are used to calculate edge features as Eucledian distances
+        # Geometric centroids are to be used as node positions, which are used to calculate edge features as Euclidean distances
         subgraph_points = [obj.geometric_centroid for obj in subgraph.objects]
         fullgraph_points = [obj.geometric_centroid for obj in fullgraph.objects]
 
-        subgraph_points = np.array([[point.x, point.y, point.z] for point in subgraph_points])
+        subgraph_points = np.array([[point.x, point.y, point.z] for point in subgraph_points])[::3]
         fullgraph_points = np.array([[point.x, point.y, point.z] for point in fullgraph_points])
 
         # Create adjacency matrices
@@ -97,23 +99,27 @@ class GraphMatcher:
         gaussian_aff = functools.partial(pygm.utils.gaussian_aff_fn, sigma=.001)
         
         # Build affinity matrix
-        K = pygm.utils.build_aff_mat(
-            node_feat1=subgraph_nodes, 
-            edge_feat1=edge1, 
-            connectivity1=conn1,
-            node_feat2=fullgraph_nodes, 
-            edge_feat2=edge2, 
-            connectivity2=conn2
-        )
-
-        print("A1:\n", A1)
-        print("A2:\n", A2)
-        print("Connectivity 1:\n", conn1)
-        print("Edge 1:\n", edge1)
-        print("Connectivity 2:\n", conn2)
-        print("Edge 2:\n", edge2)
+        # K = pygm.utils.build_aff_mat(
+        #     node_feat1=subgraph_nodes, 
+        #     edge_feat1=edge1, 
+        #     connectivity1=conn1,
+        #     node_feat2=fullgraph_nodes, 
+        #     edge_feat2=edge2, 
+        #     connectivity2=conn2
+        # )
         
-        print("Affinity Matrix:\n", K)
+        K = pygm.utils.build_aff_mat(subgraph_nodes, edge1, conn1, fullgraph_nodes, edge2, conn2, None, None, None, None, edge_aff_fn=gaussian_aff)
+
+
+        # print("A1:\n", A1)
+        # print("A2:\n", A2)
+        # print("Connectivity 1:\n", conn1)
+        # print("Edge 1:\n", edge1)
+        # print("Connectivity 2:\n", conn2)
+        # print("Edge 2:\n", edge2)
+        print(num_nodes1, num_nodes2)
+        print(n1, n2)
+        print("Affinity Matrix:\n", K.shape)
 
 
         X = pygm.rrwm(K, n1, n2)
@@ -127,16 +133,15 @@ class GraphMatcher:
 
         X = pygm.hungarian(X)
         
-        plt.figure(figsize=(8, 4))
-        plt.subplot(1, 2, 1)
-        plt.title(f'RRWM Matching Matrix (acc={(X * X_gt).sum()/ X_gt.sum():.2f})')
-        plt.imshow(X.numpy(), cmap='Blues')
-        plt.subplot(1, 2, 2)
-        plt.title('Ground Truth Matching Matrix')
-        plt.imshow(X_gt.numpy(), cmap='Blues')
+        # plt.figure(figsize=(8, 4))
+        # plt.subplot(1, 2, 1)
+        # plt.title(f'RRWM Matching Matrix (acc={(X * X_gt).sum()/ X_gt.sum():.2f})')
+        # plt.imshow(X.numpy(), cmap='Blues')
+        # plt.subplot(1, 2, 2)
+        # plt.title('Ground Truth Matching Matrix')
+        # plt.imshow(X_gt.numpy(), cmap='Blues')
 
 
 if __name__ == "__main__":
-    rospy.init_node("graph_matcher")
     graph_matcher = GraphMatcher()
-    rospy.spin()
+    graph_matcher.match(graph_matcher.subgraph, graph_matcher.fullgraph)

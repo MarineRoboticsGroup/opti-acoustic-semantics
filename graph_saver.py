@@ -1,5 +1,5 @@
 
-import BytesIO
+from io import BytesIO
 import rospy
 import message_filters
 from semanticslam_ros.msg import ObjectsVector, ObjectVector
@@ -22,7 +22,7 @@ class GraphSaver:
         # self.sync.registerCallback(self.write_map_to_file)
         self.fullgraph_sub = rospy.Subscriber(fullgraph_topic, ObjectsVector, self.write_map_to_file)
     
-    def write_map_to_file(self, subgraph: ObjectsVector, fullgraph: ObjectsVector) -> None:
+    def write_map_to_file(self, fullgraph: ObjectsVector) -> None:
         buff = BytesIO()
         fullgraph.serialize(buff)
         serialized_bytes = buff.getvalue()
