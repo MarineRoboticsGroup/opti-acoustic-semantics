@@ -5,6 +5,8 @@ from matplotlib.patches import ConnectionPatch # for plotting matching result
 import networkx as nx # for plotting graphs
 import numpy as np
 from scipy.spatial.distance import pdist, squareform
+from scipy.sparse.csgraph import connected_components
+
 import functools
 from io import BytesIO
 
@@ -24,17 +26,27 @@ class GraphMatcher:
     
     def __init__(self) -> None:
         assert torch.cuda.is_available()
-        with open("kitti_map.txt", 'rb') as binary_file:
+        with open("zpool_2obj1loop_part1.txt", 'rb') as binary_file:
             buf = BytesIO(binary_file.read())
             bytes = buf.getvalue()
             self.fullgraph = ObjectsVector()
             self.fullgraph.deserialize(bytes)
-            self.subgraph = self.fullgraph
-        with open("kitti_seq05_colors.txt", 'rb') as binary_file:
+            # self.subgraph = self.fullgraph
+        with open("zpool_2obj1loop_part2.txt", 'rb') as binary_file:
             buf = BytesIO(binary_file.read())
             bytes = buf.getvalue()
-            self.lm_colors = Marker()
-            self.lm_colors.deserialize(bytes)
+            self.subgraph = ObjectsVector()
+            self.subgraph.deserialize(bytes)
+        with open("zpool_2obj1loop_part1_colors.txt", 'rb') as binary_file:
+            buf = BytesIO(binary_file.read())
+            bytes = buf.getvalue()
+            self.fullgraph_lm_colors = Marker()
+            self.fullgraph_lm_colors.deserialize(bytes)
+        with open("zpool_2obj1loop_part2_colors.txt", 'rb') as binary_file:
+            buf = BytesIO(binary_file.read())
+            bytes = buf.getvalue()
+            self.subgraph_lm_colors = Marker()
+            self.subgraph_lm_colors.deserialize(bytes)           
             
     # def create_edge_features(node_positions):
     #     """
@@ -60,38 +72,90 @@ class GraphMatcher:
     #     return edge_features, connectivity
 
         # Function to create adjacency matrix from geometric centroids
-    def create_adjacency_matrix(self, points):
-        # Calculate pairwise Euclidean distances
-        dist_matrix = squareform(pdist(points, 'euclidean'))
-        # Normalize distances and create adjacency matrix (optional: apply a threshold for connections)
-        adjacency_matrix = torch.tensor(dist_matrix)
-        return adjacency_matrix
-  
+    # def create_adjacency_matrix(self, points, threshold):
+    #     # Calculate pairwise Euclidean distances
+    #     print(points.shape)
+    #     dist_matrix = squareform(pdist(points, 'euclidean'))
+    #     dist_matrix[dist_matrix > threshold] = 0
+    #     print(dist_matrix.shape)
+    #     # Apply threshold: connections above the threshold are set to 0
+    #     adjacency_matrix = torch.tensor(dist_matrix)
+    #     print(adjacency_matrix.shape)
+    #     print(adjacency_matrix)
+    #     return adjacency_matrix
+    def create_adjacency_matrix(self, points, threshold):
+        # Number of points
+        n = points.shape[0]
+
+        # Initialize the adjacency matrix with np.inf (representing no connection)
+        adjacency_matrix = np.full((n, n), 0)
+
+        # Iterate over all pairs of points
+        for i in range(n):
+            for j in range(i + 1, n):
+                # Calculate Euclidean distance between point i and point j
+                distance = np.linalg.norm(points[i] - points[j])
+                
+                # If the distance is less than or equal to the threshold, store the distance
+                if distance <= threshold:
+                    adjacency_matrix[i, j] = distance
+                    adjacency_matrix[j, i] = distance
+        
+        # Optional: set diagonal to 0 to indicate no self-loop connections
+        np.fill_diagonal(adjacency_matrix, 0)
+
+        # # Check if the graph is fully connected
+        # num_components, labels = connected_components(adjacency_matrix, directed=False, return_labels=True)
+
+        # # If not fully connected, add the smallest missing edges to make it fully connected
+        # while num_components > 1:
+        #     for i in range(n):
+        #         for j in range(i + 1, n):
+        #             if adjacency_matrix[i, j] == 0:
+        #                 # Calculate the distance for this unconnected pair
+        #                 distance = np.linalg.norm(points[i] - points[j])
+        #                 # Add this edge to the graph
+        #                 adjacency_matrix[i, j] = distance
+        #                 adjacency_matrix[j, i] = distance
+        #                 # Recompute the numbefullyof components
+        #                 num_components, labels = connected_components(adjacency_matrix, directed=False, return_labels=True)
+        #                 if num_components == 1:
+        #                     break
+        #         if num_components == 1:
+        #             break
+
+        return torch.tensor(adjacency_matrix)
+
     def match(self, subgraph: ObjectsVector, fullgraph: ObjectsVector) -> None:
         """
         Run graph matching and publish result to /matching topic
         """
-        # Extract nodes and edges from subgraph and fullgraph
         
+        selected = [11,12,13]
+        # Extract nodes and edges from subgraph and fullgraph
+
         # Latent centroids are to be used as node features
-        subgraph_nodes = [obj.latent_centroid for obj in subgraph.objects][15:20]
-        fullgraph_nodes = [obj.latent_centroid for obj in fullgraph.objects]
+        subgraph_nodes = np.array([obj.latent_centroid for obj in subgraph.objects])[selected]
+        fullgraph_nodes = np.array([obj.latent_centroid for obj in fullgraph.objects])
         subgraph_nodes = torch.tensor(subgraph_nodes)
         fullgraph_nodes = torch.tensor(fullgraph_nodes)
         
         # Geometric centroids are to be used as node positions, which are used to calculate edge features as Euclidean distances
-        subgraph_points = [obj.geometric_centroid for obj in subgraph.objects]
-        fullgraph_points = [obj.geometric_centroid for obj in fullgraph.objects]
+        subgraph_points = np.array([obj.geometric_centroid for obj in subgraph.objects])[selected]
+        fullgraph_points = np.array([obj.geometric_centroid for obj in fullgraph.objects])
 
-        subgraph_points = np.array([[point.x, point.y, point.z] for point in subgraph_points])[15:20]
+        subgraph_points = np.array([[point.x, point.y, point.z] for point in subgraph_points])
         fullgraph_points = np.array([[point.x, point.y, point.z] for point in fullgraph_points])
         
-        colors = self.lm_colors.colors
-        colors = [(color.r, color.g, color.b, color.a) for color in colors]
-
+        colors = self.fullgraph_lm_colors.colors
+        colors_fullgraph = np.array([(color.r, color.g, color.b, color.a) for color in colors])
+        
+        colors = self.subgraph_lm_colors.colors
+        colors_subgraph = np.array([(color.r, color.g, color.b, color.a) for color in colors])[selected]    
+        
         # Create adjacency matrices
-        A1 = self.create_adjacency_matrix(subgraph_points)
-        A2 = self.create_adjacency_matrix(fullgraph_points)
+        A1 = self.create_adjacency_matrix(subgraph_points, threshold=1000)
+        A2 = self.create_adjacency_matrix(fullgraph_points, threshold=1000)
 
         # Number of nodes
         num_nodes1 = len(subgraph_nodes)
@@ -108,14 +172,15 @@ class GraphMatcher:
         G1 = nx.from_numpy_array(A1.numpy())
         pos1 = nx.spring_layout(G1)
         
-        selected = [15, 16, 17, 18, 19]
         X_gt = torch.eye(num_nodes2)[selected, :]
 
         # full 
         G2 = nx.from_numpy_array(A2.numpy())
         pos2 = nx.spring_layout(G2)
-        color1 = ['#FF5733' for _ in range(num_nodes1)]
-        color2 = ['#FF5733' if _ in selected else '#1f78b4' for _ in range(num_nodes2)]
+        # color1 = ['#FF5733' for _ in range(num_nodes1)]
+        # color2 = ['#FF5733' if _ in selected else '#1f78b4' for _ in range(num_nodes2)]
+        color1 = colors_subgraph
+        color2 = colors_fullgraph
         plt.figure(figsize=(8, 4))
         plt.subplot(1, 2, 1)
         plt.title('Subgraph 1')
@@ -124,10 +189,17 @@ class GraphMatcher:
         plt.subplot(1, 2, 2)
         plt.title('Graph 2')
         nx.draw_networkx(G2, pos=pos2, node_color=color2)
-                
+        plt.show()
         
         # Define the affinity function
         gaussian_aff = functools.partial(pygm.utils.gaussian_aff_fn, sigma=.001)
+        
+        print("Subgraph nodes: ", subgraph_nodes.shape)
+        print("Fullgraph nodes: ", fullgraph_nodes.shape)
+        print("Edge 1: ", edge1.shape)
+        print("Connectivity 1: ", conn1.shape)
+        print("Edge 2: ", edge2.shape)
+        print("Connectivity 2: ", conn2.shape)
         
         # Build affinity matrix      
         K = pygm.utils.build_aff_mat(subgraph_nodes, edge1, conn1, fullgraph_nodes, edge2, conn2, None, None, None, None, edge_aff_fn=gaussian_aff)
