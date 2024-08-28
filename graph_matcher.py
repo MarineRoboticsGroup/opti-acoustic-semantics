@@ -18,7 +18,17 @@ from visualization_msgs.msg import Marker
 pygm.set_backend('pytorch') # set default backend for pygmtools
 _ = torch.manual_seed(1) # fix random seed
 
-    
+def cos_aff_fn(feat1, feat2): # feat1 has shape (n_1, f), feat2 has shape (n_2, f)
+    # cosine similarity between feat1 and feat2
+    return torch.nn.functional.cosine_similarity(feat1.unsqueeze(2), feat2.unsqueeze(1), dim=-1)
+
+def uncertainty_aff_fn(feat1, feat2): # feat1 has shape (n_1, f), feat2 has shape (n_2, f)
+    sigma = 1
+    sigmas = torch.tensor(feat1.shape[0]*[sigma])
+    affn = -torch.nn.functional.pairwise_distance(feat1.unsqueeze(2), feat2.unsqueeze(1), p=2) / (2 * sigmas.unsqueeze(1).unsqueeze(1)**2)
+    print(affn)
+    return affn
+
 class GraphMatcher:
     """
     Matches subgraph to a larger graph using Quadratic Assignment Problem (QAP)
@@ -202,7 +212,9 @@ class GraphMatcher:
         print("Connectivity 2: ", conn2.shape)
         
         # Build affinity matrix      
-        K = pygm.utils.build_aff_mat(subgraph_nodes, edge1, conn1, fullgraph_nodes, edge2, conn2, None, None, None, None, edge_aff_fn=gaussian_aff)
+        K = pygm.utils.build_aff_mat(subgraph_nodes, edge1, conn1, fullgraph_nodes, edge2, conn2, None, None, None, node_aff_fn=uncertainty_aff_fn, edge_aff_fn=gaussian_aff)
+        #K = pygm.utils.build_aff_mat(None, edge1, conn1, None, edge2, conn2, None, None, None, node_aff_fn=cos_aff_fn, edge_aff_fn=gaussian_aff)
+
         # K = pygm.utils.build_aff_mat(None, edge1, conn1, None, edge2, conn2, None, None, None, None, edge_aff_fn=gaussian_aff)
         plt.figure(figsize=(4, 4))
         plt.title(f'Affinity Matrix (size: {K.shape[0]}$\\times${K.shape[1]})')
