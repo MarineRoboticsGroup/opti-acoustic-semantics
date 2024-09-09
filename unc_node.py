@@ -8,7 +8,7 @@ from sensor_msgs.msg import Image as RosImage
 import tf2_ros
 
 import message_filters
-from std_msgs.msg import Int32, Float32
+from semanticslam_ros.msg import Uncertainty
 from sensor_msgs.msg import CameraInfo
 import ros_numpy as rnp
 
@@ -36,8 +36,11 @@ def img_cb(image_msg):
 
     with torch.no_grad():
         class_logits, uncertainties, embeddings = model(im_torch) 
-        print(uncertainties)
-        
+        uncert_msg = Uncertainty()
+        uncert_msg.header = image_msg.header
+        uncert_msg.uncertainty = uncertainties.item()
+        uncert_pub.publish(uncert_msg)
+                
 if __name__ == '__main__':
     rospy.init_node('unc_node', anonymous=True)
     bridge = CvBridge()
@@ -45,4 +48,5 @@ if __name__ == '__main__':
     model = create_model(model_name, pretrained=True, checkpoint_path='/home/singhk/url/weights/vit_small_checkpoint.pth.tar', unc_depth=2, unc_module='pred-net', unc_width=512)
     model.eval()
     rospy.Subscriber("/usb_cam/image_raw_repub", RosImage, img_cb)
+    uncert_pub = rospy.Publisher("/uncertainty", Uncertainty, queue_size=1)
     rospy.spin()
