@@ -12,7 +12,7 @@ from io import BytesIO
 
 import rospy
 import message_filters
-from semanticslam_ros.msg import ObjectsVector, ObjectVector
+from semanticslam_ros.msg import ObjectsVector, ObjectVector, ObjectsVectorUncertainty, ObjectVectorUncertainty
 from visualization_msgs.msg import Marker
 
 pygm.set_backend('pytorch') # set default backend for pygmtools
@@ -29,6 +29,67 @@ def uncertainty_aff_fn(feat1, feat2): # feat1 has shape (n_1, f), feat2 has shap
     print(affn)
     return affn
 
+# def battacharyya_aff_fn(feat1, feat2): # feat1 has shape (n_1, f), feat2 has shape (n_2, f) 
+#     # Bhattacharyya affinity between feat1 and feat2
+#     print(feat1.shape)
+#     print(feat2.shape)
+    
+#     sigma1 = feat1[-1]
+#     sigma2 = feat2[-1]
+#     encoding1 = feat1[:-1]
+#     encoding2 = feat2[:-1]
+    
+#     sigma = (sigma1 + sigma2) / 2
+    
+#     # Calculate the Bhattacharyya coefficient
+#     db = 1/8 * (encoding1 - encoding2).T @ torch.inverse(sigma) @ (encoding1 - encoding2) + \
+#          1/2 * torch.log(torch.det(sigma) / torch.sqrt(torch.det(sigma1) * torch.det(sigma2)))
+#     return db
+
+def bhattacharyya_distance(mu1, sigma1, mu2, sigma2):
+    """Compute Bhattacharyya distance between two Gaussian distributions.
+    
+    Args:
+        mu1 (torch.Tensor): Mean vector of first Gaussian.
+        sigma1 (torch.Tensor): Sigma (standard deviation) of first Gaussian.
+        mu2 (torch.Tensor): Mean vector of second Gaussian.
+        sigma2 (torch.Tensor): Sigma (standard deviation) of second Gaussian.
+
+    Returns:
+        torch.Tensor: Bhattacharyya distance.
+    """
+    term1 = 0.25 * torch.sum((mu1 - mu2) ** 2 / (sigma1 ** 2 + sigma2 ** 2), dim=-1)
+    term2 = 0.5 * torch.sum(torch.log((sigma1 ** 2 + sigma2 ** 2) / (2 * torch.sqrt(sigma1 ** 2 * sigma2 ** 2))), dim=-1)
+    return term1 + term2
+
+def bhattacharyya_aff_fn(tensor1, tensor2):
+    """Compute pairwise Bhattacharyya distances between two tensors.
+
+    Args:
+        tensor1 (torch.Tensor): Tensor of shape [1, 3, 385].
+        tensor2 (torch.Tensor): Tensor of shape [1, 12, 385].
+
+    Returns:
+        torch.Tensor: Tensor of pairwise Bhattacharyya distances.
+    """
+    # Extract feature vectors and sigma values
+    features1 = tensor1[:, :-1, :]  # Shape: [1, 2, 385]
+    sigma1 = tensor1[:, -1, :]      # Shape: [1, 385]
+    features2 = tensor2[:, :-1, :]  # Shape: [1, 11, 385]
+    sigma2 = tensor2[:, -1, :]      # Shape: [1, 385]
+
+    # Compute pairwise Bhattacharyya distances
+    distances = torch.zeros(features1.size(1), features2.size(1))  # Shape: [2, 11]
+
+    for i in range(features1.size(1)):
+        mu1 = features1[:, i, :]  # Shape: [1, 385]
+        for j in range(features2.size(1)):
+            mu2 = features2[:, j, :]  # Shape: [1, 385]
+            distances[i, j] = bhattacharyya_distance(mu1, sigma1, mu2, sigma2)
+    
+    return distances
+
+
 class GraphMatcher:
     """
     Matches subgraph to a larger graph using Quadratic Assignment Problem (QAP)
@@ -36,23 +97,23 @@ class GraphMatcher:
     
     def __init__(self) -> None:
         assert torch.cuda.is_available()
-        with open("zpool_2obj1loop_part1.txt", 'rb') as binary_file:
+        with open("zpool_2obj1loop_part1_uncertainties.txt", 'rb') as binary_file:
             buf = BytesIO(binary_file.read())
             bytes = buf.getvalue()
-            self.fullgraph = ObjectsVector()
+            self.fullgraph = ObjectsVectorUncertainty()
             self.fullgraph.deserialize(bytes)
             # self.subgraph = self.fullgraph
-        with open("zpool_2obj1loop_part2.txt", 'rb') as binary_file:
+        with open("zpool_2obj1loop_part2_uncertainties.txt", 'rb') as binary_file:
             buf = BytesIO(binary_file.read())
             bytes = buf.getvalue()
-            self.subgraph = ObjectsVector()
+            self.subgraph = ObjectsVectorUncertainty()
             self.subgraph.deserialize(bytes)
-        with open("zpool_2obj1loop_part1_colors.txt", 'rb') as binary_file:
+        with open("zpool_2obj1loop_part1_colors_uncertainties.txt", 'rb') as binary_file:
             buf = BytesIO(binary_file.read())
             bytes = buf.getvalue()
             self.fullgraph_lm_colors = Marker()
             self.fullgraph_lm_colors.deserialize(bytes)
-        with open("zpool_2obj1loop_part2_colors.txt", 'rb') as binary_file:
+        with open("zpool_2obj1loop_part2_colors_uncertainties.txt", 'rb') as binary_file:
             buf = BytesIO(binary_file.read())
             bytes = buf.getvalue()
             self.subgraph_lm_colors = Marker()
@@ -105,7 +166,7 @@ class GraphMatcher:
             for j in range(i + 1, n):
                 # Calculate Euclidean distance between point i and point j
                 distance = np.linalg.norm(points[i] - points[j])
-                
+                print(distance)
                 # If the distance is less than or equal to the threshold, store the distance
                 if distance <= threshold:
                     adjacency_matrix[i, j] = distance
@@ -133,10 +194,10 @@ class GraphMatcher:
         #                     break
         #         if num_components == 1:
         #             break
-
+        print(adjacency_matrix)
         return torch.tensor(adjacency_matrix)
 
-    def match(self, subgraph: ObjectsVector, fullgraph: ObjectsVector) -> None:
+    def match(self, subgraph: ObjectsVectorUncertainty, fullgraph: ObjectsVectorUncertainty) -> None:
         """
         Run graph matching and publish result to /matching topic
         """
@@ -145,14 +206,19 @@ class GraphMatcher:
         # Extract nodes and edges from subgraph and fullgraph
 
         # Latent centroids are to be used as node features
-        subgraph_nodes = np.array([obj.latent_centroid for obj in subgraph.objects])[selected]
-        fullgraph_nodes = np.array([obj.latent_centroid for obj in fullgraph.objects])
+        # Super hacky way to store uncertainty in the last dimension of the node features since it needs to be a tensor
+        subgraph_nodes = np.array([list(obj.latent_centroid) + [obj.uncertainty] for obj in subgraph.objects])[selected]
+        fullgraph_nodes = np.array([list(obj.latent_centroid) + [obj.uncertainty] for obj in fullgraph.objects])
         subgraph_nodes = torch.tensor(subgraph_nodes)
         fullgraph_nodes = torch.tensor(fullgraph_nodes)
+        print(subgraph_nodes.shape)
         
         # Geometric centroids are to be used as node positions, which are used to calculate edge features as Euclidean distances
         subgraph_points = np.array([obj.geometric_centroid for obj in subgraph.objects])[selected]
         fullgraph_points = np.array([obj.geometric_centroid for obj in fullgraph.objects])
+        print("POINTS ______________________________")
+        print(subgraph_points)
+        print(fullgraph_points)
 
         subgraph_points = np.array([[point.x, point.y, point.z] for point in subgraph_points])
         fullgraph_points = np.array([[point.x, point.y, point.z] for point in fullgraph_points])
@@ -164,8 +230,8 @@ class GraphMatcher:
         colors_subgraph = np.array([(color.r, color.g, color.b, color.a) for color in colors])[selected]    
         
         # Create adjacency matrices
-        A1 = self.create_adjacency_matrix(subgraph_points, threshold=1000)
-        A2 = self.create_adjacency_matrix(fullgraph_points, threshold=1000)
+        A1 = self.create_adjacency_matrix(subgraph_points, threshold=10000)
+        A2 = self.create_adjacency_matrix(fullgraph_points, threshold=10000)
 
         # Number of nodes
         num_nodes1 = len(subgraph_nodes)
@@ -212,7 +278,8 @@ class GraphMatcher:
         print("Connectivity 2: ", conn2.shape)
         
         # Build affinity matrix      
-        K = pygm.utils.build_aff_mat(subgraph_nodes, edge1, conn1, fullgraph_nodes, edge2, conn2, None, None, None, node_aff_fn=uncertainty_aff_fn, edge_aff_fn=gaussian_aff)
+        print(conn1.shape, edge1.shape, conn2.shape, edge2.shape)
+        K = pygm.utils.build_aff_mat(subgraph_nodes, edge1, conn1, fullgraph_nodes, edge2, conn2, None, None, None, None, node_aff_fn=bhattacharyya_aff_fn, edge_aff_fn=gaussian_aff)
         #K = pygm.utils.build_aff_mat(None, edge1, conn1, None, edge2, conn2, None, None, None, node_aff_fn=cos_aff_fn, edge_aff_fn=gaussian_aff)
 
         # K = pygm.utils.build_aff_mat(None, edge1, conn1, None, edge2, conn2, None, None, None, None, edge_aff_fn=gaussian_aff)
