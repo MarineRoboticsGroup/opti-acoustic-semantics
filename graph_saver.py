@@ -27,7 +27,7 @@ class GraphSaver:
         buff = BytesIO()
         fullgraph.serialize(buff)
         serialized_bytes = buff.getvalue()
-        with open("zpool_2obj1loop_part1.txt", "wb") as binary_file:
+        with open("zpool_2obj2loop_part1.txt", "wb") as binary_file:
             # Write bytes to file
             binary_file.write(serialized_bytes)
 
@@ -36,14 +36,14 @@ class GraphSaver:
         buff = BytesIO()
         fullgraph.serialize(buff)
         serialized_bytes = buff.getvalue()
-        with open("zpool_2obj1loop_part1_uncertainties.txt", "wb") as binary_file:
+        with open("zpool_2obj2loop_part1_uncertainties.txt", "wb") as binary_file:
             # Write bytes to file
             binary_file.write(serialized_bytes)
             
         buff2 = BytesIO()
         lm_colors.serialize(buff2)
         serialized_bytes2 = buff2.getvalue()
-        with open("zpool_2obj1loop_part1_colors_uncertainties.txt", "wb") as binary_file2:
+        with open("zpool_2obj2loop_part1_colors_uncertainties.txt", "wb") as binary_file2:
             # Write bytes to file
             binary_file2.write(serialized_bytes2)
         

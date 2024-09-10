@@ -18,15 +18,35 @@ from visualization_msgs.msg import Marker
 pygm.set_backend('pytorch') # set default backend for pygmtools
 _ = torch.manual_seed(1) # fix random seed
 
-def cos_aff_fn(feat1, feat2): # feat1 has shape (n_1, f), feat2 has shape (n_2, f)
+def cos_aff_fn(feat1, feat2): # feat1 has shape (1, n_1, f), feat2 has shape (1, n_2, f)
     # cosine similarity between feat1 and feat2
     return torch.nn.functional.cosine_similarity(feat1.unsqueeze(2), feat2.unsqueeze(1), dim=-1)
+
+def cos_aff_fn_weighted(tensor1, tensor2):
+    # Extract features and uncertainties
+    features1 = tensor1[:, :, :-1]  # Shape: [1, 3, 384]
+    sigmas1 = tensor1[:, :, -1]     # Shape: [1, 3]
+    features2 = tensor2[:, :, :-1]  # Shape: [1, 14, 384]
+    sigmas2 = tensor2[:, :, -1]     # Shape: [1, 14]
+    
+    # Compute cosine similarity between features1 and features2
+    cosine_sim = torch.nn.functional.cosine_similarity(features1.unsqueeze(2), features2.unsqueeze(1), dim=-1)
+    
+    # Combine uncertainties; reshape to broadcast across the cosine similarity
+    uncertainty_weights = (sigmas1.unsqueeze(2) + sigmas2.unsqueeze(1)) / 2  # Shape: [1, 3, 14]
+
+    # Apply weights to cosine similarity based on uncertainties
+    weighted_cosine_sim = cosine_sim * (1 / (1 + uncertainty_weights))  # Shape: [1, 3, 14]
+    
+    return weighted_cosine_sim
+
 
 def uncertainty_aff_fn(feat1, feat2): # feat1 has shape (n_1, f), feat2 has shape (n_2, f)
     sigma = 1
     sigmas = torch.tensor(feat1.shape[0]*[sigma])
     affn = -torch.nn.functional.pairwise_distance(feat1.unsqueeze(2), feat2.unsqueeze(1), p=2) / (2 * sigmas.unsqueeze(1).unsqueeze(1)**2)
-    print(affn)
+    print("AFFN")
+    print(affn.shape)
     return affn
 
 # def battacharyya_aff_fn(feat1, feat2): # feat1 has shape (n_1, f), feat2 has shape (n_2, f) 
@@ -67,28 +87,52 @@ def bhattacharyya_aff_fn(tensor1, tensor2):
 
     Args:
         tensor1 (torch.Tensor): Tensor of shape [1, 3, 385].
-        tensor2 (torch.Tensor): Tensor of shape [1, 12, 385].
+        tensor2 (torch.Tensor): Tensor of shape [1, 14, 385].
 
     Returns:
         torch.Tensor: Tensor of pairwise Bhattacharyya distances.
     """
     # Extract feature vectors and sigma values
-    features1 = tensor1[:, :-1, :]  # Shape: [1, 2, 385]
-    sigma1 = tensor1[:, -1, :]      # Shape: [1, 385]
-    features2 = tensor2[:, :-1, :]  # Shape: [1, 11, 385]
-    sigma2 = tensor2[:, -1, :]      # Shape: [1, 385]
+    features1 = tensor1[:, :, :-1]  # Shape: [1, 3, 384]
+    sigmas1 = tensor1[:, :, -1]      # Shape: [1, 3]
+    features2 = tensor2[:, :, :-1]  # Shape: [1, 14, 384]
+    sigmas2 = tensor2[:, :, -1]      # Shape: [1, 14]
 
     # Compute pairwise Bhattacharyya distances
     distances = torch.zeros(features1.size(1), features2.size(1))  # Shape: [2, 11]
 
     for i in range(features1.size(1)):
-        mu1 = features1[:, i, :]  # Shape: [1, 385]
+        mu1 = features1[:, i, :]  # Shape: [1, 384]
+        sigma1 = sigmas1[:, i]     # Shape: [1]
         for j in range(features2.size(1)):
-            mu2 = features2[:, j, :]  # Shape: [1, 385]
+            mu2 = features2[:, j, :]  # Shape: [1, 384]
+            sigma2 = sigmas2[:, j]     # Shape: [1]
             distances[i, j] = bhattacharyya_distance(mu1, sigma1, mu2, sigma2)
-    
+    distances = distances.unsqueeze(0)
     return distances
 
+def mahalanobis_dist_aff_fn(tensor1, tensor2): # feat1 has shape (1, n_1, f), feat2 has shape (1, n_2, f)
+    # Mahalanobis distance affinity between feat1 and feat2
+    # Extract feature vectors and sigma values
+    features1 = tensor1[:, :, :-1]  # Shape: [1, 3, 384]
+    sigmas1 = tensor1[:, :, -1]      # Shape: [1, 3]
+    features2 = tensor2[:, :, :-1]  # Shape: [1, 14, 384]
+    sigmas2 = tensor2[:, :, -1]      # Shape: [1, 14]
+    
+    # computer pairwise Mahalanobis distances
+    distances = torch.zeros(features1.size(1), features2.size(1))
+    
+    for i in range(features1.size(1)):
+        mu1 = features1[:, i, :]
+        sigma1 = sigmas1[:, i]
+        for j in range(features2.size(1)):
+            mu2 = features2[:, j, :]
+            sigma2 = sigmas2[:, j]
+            distances[i, j] = torch.nn.functional.pairwise_distance(mu1, mu2, p=2) / torch.sqrt(sigma1**2 + sigma2**2)
+    distances = distances.unsqueeze(0)
+    return distances
+        
+    
 
 class GraphMatcher:
     """
@@ -97,23 +141,23 @@ class GraphMatcher:
     
     def __init__(self) -> None:
         assert torch.cuda.is_available()
-        with open("zpool_2obj1loop_part1_uncertainties.txt", 'rb') as binary_file:
+        with open("zpool_2obj2loop_part1_uncertainties.txt", 'rb') as binary_file:
             buf = BytesIO(binary_file.read())
             bytes = buf.getvalue()
             self.fullgraph = ObjectsVectorUncertainty()
             self.fullgraph.deserialize(bytes)
             # self.subgraph = self.fullgraph
-        with open("zpool_2obj1loop_part2_uncertainties.txt", 'rb') as binary_file:
+        with open("zpool_2obj2loop_part2_uncertainties.txt", 'rb') as binary_file:
             buf = BytesIO(binary_file.read())
             bytes = buf.getvalue()
             self.subgraph = ObjectsVectorUncertainty()
             self.subgraph.deserialize(bytes)
-        with open("zpool_2obj1loop_part1_colors_uncertainties.txt", 'rb') as binary_file:
+        with open("zpool_2obj2loop_part1_colors_uncertainties.txt", 'rb') as binary_file:
             buf = BytesIO(binary_file.read())
             bytes = buf.getvalue()
             self.fullgraph_lm_colors = Marker()
             self.fullgraph_lm_colors.deserialize(bytes)
-        with open("zpool_2obj1loop_part2_colors_uncertainties.txt", 'rb') as binary_file:
+        with open("zpool_2obj2loop_part2_colors_uncertainties.txt", 'rb') as binary_file:
             buf = BytesIO(binary_file.read())
             bytes = buf.getvalue()
             self.subgraph_lm_colors = Marker()
@@ -166,7 +210,6 @@ class GraphMatcher:
             for j in range(i + 1, n):
                 # Calculate Euclidean distance between point i and point j
                 distance = np.linalg.norm(points[i] - points[j])
-                print(distance)
                 # If the distance is less than or equal to the threshold, store the distance
                 if distance <= threshold:
                     adjacency_matrix[i, j] = distance
@@ -175,26 +218,25 @@ class GraphMatcher:
         # Optional: set diagonal to 0 to indicate no self-loop connections
         np.fill_diagonal(adjacency_matrix, 0)
 
-        # # Check if the graph is fully connected
-        # num_components, labels = connected_components(adjacency_matrix, directed=False, return_labels=True)
+        # Check if the graph is fully connected
+        num_components, labels = connected_components(adjacency_matrix, directed=False, return_labels=True)
 
-        # # If not fully connected, add the smallest missing edges to make it fully connected
-        # while num_components > 1:
-        #     for i in range(n):
-        #         for j in range(i + 1, n):
-        #             if adjacency_matrix[i, j] == 0:
-        #                 # Calculate the distance for this unconnected pair
-        #                 distance = np.linalg.norm(points[i] - points[j])
-        #                 # Add this edge to the graph
-        #                 adjacency_matrix[i, j] = distance
-        #                 adjacency_matrix[j, i] = distance
-        #                 # Recompute the numbefullyof components
-        #                 num_components, labels = connected_components(adjacency_matrix, directed=False, return_labels=True)
-        #                 if num_components == 1:
-        #                     break
-        #         if num_components == 1:
-        #             break
-        print(adjacency_matrix)
+        # If not fully connected, add the smallest missing edges to make it fully connected
+        while num_components > 1:
+            for i in range(n):
+                for j in range(i + 1, n):
+                    if adjacency_matrix[i, j] == 0:
+                        # Calculate the distance for this unconnected pair
+                        distance = np.linalg.norm(points[i] - points[j])
+                        # Add this edge to the graph
+                        adjacency_matrix[i, j] = distance
+                        adjacency_matrix[j, i] = distance
+                        # Recompute the numbefullyof componentcos_aff_fns
+                        num_components, labels = connected_components(adjacency_matrix, directed=False, return_labels=True)
+                        if num_components == 1:
+                            break
+                if num_components == 1:
+                    break
         return torch.tensor(adjacency_matrix)
 
     def match(self, subgraph: ObjectsVectorUncertainty, fullgraph: ObjectsVectorUncertainty) -> None:
@@ -202,23 +244,22 @@ class GraphMatcher:
         Run graph matching and publish result to /matching topic
         """
         
-        selected = [11,12,13]
+        selected = [0,1,2,3]
         # Extract nodes and edges from subgraph and fullgraph
 
         # Latent centroids are to be used as node features
         # Super hacky way to store uncertainty in the last dimension of the node features since it needs to be a tensor
         subgraph_nodes = np.array([list(obj.latent_centroid) + [obj.uncertainty] for obj in subgraph.objects])[selected]
         fullgraph_nodes = np.array([list(obj.latent_centroid) + [obj.uncertainty] for obj in fullgraph.objects])
+        # subgraph_nodes = np.array([list(obj.latent_centroid) for obj in subgraph.objects])[selected]
+        # fullgraph_nodes = np.array([list(obj.latent_centroid) for obj in fullgraph.objects])
+
         subgraph_nodes = torch.tensor(subgraph_nodes)
         fullgraph_nodes = torch.tensor(fullgraph_nodes)
-        print(subgraph_nodes.shape)
         
         # Geometric centroids are to be used as node positions, which are used to calculate edge features as Euclidean distances
         subgraph_points = np.array([obj.geometric_centroid for obj in subgraph.objects])[selected]
         fullgraph_points = np.array([obj.geometric_centroid for obj in fullgraph.objects])
-        print("POINTS ______________________________")
-        print(subgraph_points)
-        print(fullgraph_points)
 
         subgraph_points = np.array([[point.x, point.y, point.z] for point in subgraph_points])
         fullgraph_points = np.array([[point.x, point.y, point.z] for point in fullgraph_points])
@@ -230,8 +271,8 @@ class GraphMatcher:
         colors_subgraph = np.array([(color.r, color.g, color.b, color.a) for color in colors])[selected]    
         
         # Create adjacency matrices
-        A1 = self.create_adjacency_matrix(subgraph_points, threshold=10000)
-        A2 = self.create_adjacency_matrix(fullgraph_points, threshold=10000)
+        A1 = self.create_adjacency_matrix(subgraph_points, threshold=1)
+        A2 = self.create_adjacency_matrix(fullgraph_points, threshold=1)
 
         # Number of nodes
         num_nodes1 = len(subgraph_nodes)
@@ -268,21 +309,22 @@ class GraphMatcher:
         plt.show()
         
         # Define the affinity function
-        gaussian_aff = functools.partial(pygm.utils.gaussian_aff_fn, sigma=.001)
+        gaussian_aff = functools.partial(pygm.utils.gaussian_aff_fn, sigma=.1)
         
-        print("Subgraph nodes: ", subgraph_nodes.shape)
-        print("Fullgraph nodes: ", fullgraph_nodes.shape)
-        print("Edge 1: ", edge1.shape)
-        print("Connectivity 1: ", conn1.shape)
-        print("Edge 2: ", edge2.shape)
-        print("Connectivity 2: ", conn2.shape)
+        # print("Subgraph nodes: ", subgraph_nodes.shape)
+        # print("Fullgraph nodes: ", fullgraph_nodes.shape)
+        # print("Edge 1: ", edge1.shape)
+        # print("Connectivity 1: ", conn1.shape)
+        # print("Edge 2: ", edge2.shape)
+        # print("Connectivity 2: ", conn2.shape)
         
         # Build affinity matrix      
-        print(conn1.shape, edge1.shape, conn2.shape, edge2.shape)
-        K = pygm.utils.build_aff_mat(subgraph_nodes, edge1, conn1, fullgraph_nodes, edge2, conn2, None, None, None, None, node_aff_fn=bhattacharyya_aff_fn, edge_aff_fn=gaussian_aff)
-        #K = pygm.utils.build_aff_mat(None, edge1, conn1, None, edge2, conn2, None, None, None, node_aff_fn=cos_aff_fn, edge_aff_fn=gaussian_aff)
+        # print(conn1.shape, edge1.shape, conn2.shape, edge2.shape)
+        K = pygm.utils.build_aff_mat(subgraph_nodes, edge1, conn1, fullgraph_nodes, edge2, conn2, None, None, None, None, node_aff_fn=cos_aff_fn_weighted, edge_aff_fn=gaussian_aff)
+        # K = pygm.utils.build_aff_mat(None, edge1, conn1, None, edge2, conn2, None, None, None, None, node_aff_fn=cos_aff_fn_weighted, edge_aff_fn=gaussian_aff)
+        # K = pygm.utils.build_aff_mat(subgraph_nodes, None, conn1, fullgraph_nodes, None, conn2, None, None, None, None, node_aff_fn=cos_aff_fn_weighted, edge_aff_fn=gaussian_aff)
 
-        # K = pygm.utils.build_aff_mat(None, edge1, conn1, None, edge2, conn2, None, None, None, None, edge_aff_fn=gaussian_aff)
+
         plt.figure(figsize=(4, 4))
         plt.title(f'Affinity Matrix (size: {K.shape[0]}$\\times${K.shape[1]})')
         plt.imshow(K.numpy(), cmap='Blues')
@@ -293,15 +335,15 @@ class GraphMatcher:
         # print("Edge 1:\n", edge1)
         # print("Connectivity 2:\n", conn2)
         # print("Edge 2:\n", edge2)
-        print(num_nodes1, num_nodes2)
-        print(n1, n2)
-        print("Affinity Matrix:\n", K.shape)
-        print(n1.dtype, n2.dtype, K.dtype)
+        # print(num_nodes1, num_nodes2)
+        # print(n1, n2)
+        # print("Affinity Matrix:\n", K.shape)
+        # print(n1.dtype, n2.dtype, K.dtype)
 
         # with torch.set_grad_enabled(False):
         #     X = pygm.ngm(K, n1max=float(num_nodes1), n2max=float(num_nodes2), pretrain='voc')
         #     X = pygm.hungarian(X)
-        X = pygm.rrwm(K, n1, n2)
+        X = pygm.astar(K.float(), n1, n2)
         
         plt.figure(figsize=(8, 4))
         plt.subplot(1, 2, 1)
@@ -312,13 +354,13 @@ class GraphMatcher:
 
         X = pygm.hungarian(X)
         
-        # plt.figure(figsize=(8, 4))
-        # plt.subplot(1, 2, 1)
-        # plt.title(f'RRWM Matching Matrix (acc={(X * X_gt).sum()/ X_gt.sum():.2f})')
-        # plt.imshow(X.numpy(), cmap='Blues')
-        # plt.subplot(1, 2, 2)
-        # plt.title('Ground Truth Matching Matrix')
-        # plt.imshow(X_gt.numpy(), cmap='Blues')
+        plt.figure(figsize=(8, 4))
+        plt.subplot(1, 2, 1)
+        plt.title(f'RRWM Matching Matrix (acc={(X * X_gt).sum()/ X_gt.sum():.2f})')
+        plt.imshow(X.numpy(), cmap='Blues')
+        plt.subplot(1, 2, 2)
+        plt.title('Ground Truth Matching Matrix')
+        plt.imshow(X_gt.numpy(), cmap='Blues')
         
         plt.figure(figsize=(8, 4))
         plt.suptitle(f'RRWM Matching Result')
