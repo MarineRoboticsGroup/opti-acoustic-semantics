@@ -2,6 +2,8 @@ import torch # pytorch backend
 import pygmtools as pygm
 import matplotlib.pyplot as plt # for plotting
 from matplotlib.patches import ConnectionPatch # for plotting matching result
+from matplotlib.animation import FuncAnimation
+
 import networkx as nx # for plotting graphs
 import numpy as np
 from scipy.spatial.distance import pdist, squareform
@@ -9,6 +11,7 @@ from scipy.sparse.csgraph import connected_components
 
 import functools
 from io import BytesIO
+import time 
 
 import rospy
 import message_filters
@@ -78,8 +81,8 @@ def bhattacharyya_distance(mu1, sigma1, mu2, sigma2):
     Returns:
         torch.Tensor: Bhattacharyya distance.
     """
-    term1 = 0.25 * torch.sum((mu1 - mu2) ** 2 / (sigma1 ** 2 + sigma2 ** 2), dim=-1)
-    term2 = 0.5 * torch.sum(torch.log((sigma1 ** 2 + sigma2 ** 2) / (2 * torch.sqrt(sigma1 ** 2 * sigma2 ** 2))), dim=-1)
+    term1 = 0.125 * torch.sum((mu1 - mu2) ** 2 / (sigma1 ** 2 + sigma2 ** 2), dim=-1)
+    term2 = 0.5 * torch.sum(torch.log((sigma1 ** 2 + sigma2 ** 2) / (torch.sqrt(sigma1 ** 2 * sigma2 ** 2))), dim=-1)
     return term1 + term2
 
 def bhattacharyya_aff_fn(tensor1, tensor2):
@@ -243,8 +246,18 @@ class GraphMatcher:
         """
         Run graph matching and publish result to /matching topic
         """
+        # day 1
+        # selected = [7, 8, 9, 10, 11]
         
+        # 2obj2loop
         selected = [0,1,2,3]
+        
+        # 2obj1loop
+        # selected = [8,9,10,11,12]
+        # 540-560
+        # selected = [540, 541, 542, 543, 544, 545, 546, 547, 548, 549, 550, 551, 552, 553, 554, 555, 556, 557, 558, 559]
+        # 580-600
+        # selected = [580, 581, 582, 583, 584, 585, 586, 587, 588, 589, 590, 591, 592, 593, 594, 595, 596, 597, 598, 599]
         # Extract nodes and edges from subgraph and fullgraph
 
         # Latent centroids are to be used as node features
@@ -271,8 +284,12 @@ class GraphMatcher:
         colors_subgraph = np.array([(color.r, color.g, color.b, color.a) for color in colors])[selected]    
         
         # Create adjacency matrices
+        t0 = time.time()
         A1 = self.create_adjacency_matrix(subgraph_points, threshold=1)
         A2 = self.create_adjacency_matrix(fullgraph_points, threshold=1)
+        t1 = time.time()
+        
+        print(f"Time taken to create adjacency matrices: {t1 - t0:.6f} s")
 
         # Number of nodes
         num_nodes1 = len(subgraph_nodes)
@@ -289,24 +306,48 @@ class GraphMatcher:
         G1 = nx.from_numpy_array(A1.numpy())
         pos1 = nx.spring_layout(G1)
         
+        # For 2obj2loop and KITTI
         X_gt = torch.eye(num_nodes2)[selected, :]
 
-        # full 
-        G2 = nx.from_numpy_array(A2.numpy())
-        pos2 = nx.spring_layout(G2)
-        # color1 = ['#FF5733' for _ in range(num_nodes1)]
-        # color2 = ['#FF5733' if _ in selected else '#1f78b4' for _ in range(num_nodes2)]
-        color1 = colors_subgraph
-        color2 = colors_fullgraph
-        plt.figure(figsize=(8, 4))
-        plt.subplot(1, 2, 1)
-        plt.title('Subgraph 1')
-        plt.gca().margins(0.4)
-        nx.draw_networkx(G1, pos=pos1, node_color=color1)
-        plt.subplot(1, 2, 2)
-        plt.title('Graph 2')
-        nx.draw_networkx(G2, pos=pos2, node_color=color2)
-        plt.show()
+        # for day 1
+        # X_gt = torch.tensor([[1., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.],
+        #                        [0., 0., 1., 0., 0., 0., 0., 0., 0., 0., 0., 0.],
+        #                        [0., 1., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.],
+        #                        [0., 0., 0., 0., 1., 0., 0., 0., 0., 0., 0., 0.],
+        #                        [0., 0., 0., 1., 0., 0., 0., 0., 0., 0., 0., 0.]])[5 - len(selected):]
+
+        # for 2obj1loop
+        # X_gt = torch.tensor([[0., 0., 0., 0., 1., 0., 0., 0., 0., 0., 0., 0., 0., 0.],
+        #                       [0., 0., 0., 1., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.],
+        #                       [0., 0., 1., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.],
+        #                       [0., 1., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.],
+        #                       [1., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.]])[5 - len(selected):]
+
+
+        # for 1obj1loop
+        # X_gt = torch.tensor([[0., 0., 0., 0., 1.],
+        #                      [1., 0., 0., 0., 0.],
+        #                      [0., 0., 0., 1., 0.],
+        #                      [0., 0., 1., 0., 0.],
+        #                      [0., 1., 0., 0., 0.]])[5 - len(selected):]
+
+
+
+        # G2 = nx.from_numpy_array(A2.numpy())
+        # pos2 = nx.spring_layout(G2)
+        # # color1 = ['#FF5733' for _ in range(num_nodes1)]
+        # # color2 = ['#FF5733' if _ in selected else '#1f78b4' for _ in range(num_nodes2)]
+        # color1 = colors_subgraph
+        # color2 = colors_fullgraph
+        # plt.figure(figsize=(8, 4))
+        # plt.subplot(1, 2, 1)
+        # plt.title('Subgraph 1')
+        # plt.gca().margins(0.4)
+        # nx.draw_networkx(G1, pos=pos1, node_color=color1)
+        # plt.subplot(1, 2, 2)
+        # plt.title('Graph 2')
+        # nx.draw_networkx(G2, pos=pos2, node_color=color2)
+        # plt.show()
         
         # Define the affinity function
         gaussian_aff = functools.partial(pygm.utils.gaussian_aff_fn, sigma=.1)
@@ -320,13 +361,15 @@ class GraphMatcher:
         
         # Build affinity matrix      
         # print(conn1.shape, edge1.shape, conn2.shape, edge2.shape)
+        t0 = time.time()
         K = pygm.utils.build_aff_mat(subgraph_nodes, edge1, conn1, fullgraph_nodes, edge2, conn2, None, None, None, None, node_aff_fn=cos_aff_fn_weighted, edge_aff_fn=gaussian_aff)
         # K = pygm.utils.build_aff_mat(None, edge1, conn1, None, edge2, conn2, None, None, None, None, node_aff_fn=cos_aff_fn_weighted, edge_aff_fn=gaussian_aff)
         # K = pygm.utils.build_aff_mat(subgraph_nodes, None, conn1, fullgraph_nodes, None, conn2, None, None, None, None, node_aff_fn=cos_aff_fn_weighted, edge_aff_fn=gaussian_aff)
-
+        t1 = time.time()
+        print(f"Time taken to build affinity matrix: {t1 - t0:.6f} s")
 
         plt.figure(figsize=(4, 4))
-        plt.title(f'Affinity Matrix (size: {K.shape[0]}$\\times${K.shape[1]})')
+        plt.title(f'Affinity Matrix')
         plt.imshow(K.numpy(), cmap='Blues')
 
         # print("A1:\n", A1)
@@ -343,17 +386,44 @@ class GraphMatcher:
         # with torch.set_grad_enabled(False):
         #     X = pygm.ngm(K, n1max=float(num_nodes1), n2max=float(num_nodes2), pretrain='voc')
         #     X = pygm.hungarian(X)
-        X = pygm.astar(K.float(), n1, n2)
+        t0 = time.time()
+        intermediate_results = pygm.rrwm(K.float(), n1, n2, max_iter=20)
+        X = intermediate_results[-1]
+        t1 = time.time()
         
-        plt.figure(figsize=(8, 4))
-        plt.subplot(1, 2, 1)
-        plt.title('RRWM Soft Matching Matrix')
-        plt.imshow(X.numpy(), cmap='Blues')
+        print(f"Time taken: {t1 - t0:.6f} s")
+        
+        # plt.figure(figsize=(8, 4))
+        # plt.subplot(1, 2, 1)
+        # plt.title('RRWM Soft Matching Matrix')
+        # plt.imshow(X.numpy(), cmap='Blues')
+        # plt.show()
+
+        # Create a figure and axis for the plot
+        fig, ax = plt.subplots()
+        cax = ax.matshow(intermediate_results[0], cmap='Blues')
+        fig.colorbar(cax)
+
+        def update(frame):
+            """
+            Update function for the animation.
+            """
+            cax.set_data(intermediate_results[frame])
+            ax.set_title(f"RRWM Iteration {frame + 1}")
+            return cax,
+
+        # Create the animation
+        anim = FuncAnimation(fig, update, frames=len(intermediate_results), blit=False)
+
+        # To display the animation in a Jupyter Notebook
         plt.show()
 
+        # If you want to save the animation, use the following line (uncomment if needed)
+        anim.save('rrwm_animation.mp4', writer='ffmpeg')
+                
 
         X = pygm.hungarian(X)
-        
+        print(X)
         plt.figure(figsize=(8, 4))
         plt.subplot(1, 2, 1)
         plt.title(f'RRWM Matching Matrix (acc={(X * X_gt).sum()/ X_gt.sum():.2f})')
@@ -361,22 +431,23 @@ class GraphMatcher:
         plt.subplot(1, 2, 2)
         plt.title('Ground Truth Matching Matrix')
         plt.imshow(X_gt.numpy(), cmap='Blues')
-        
-        plt.figure(figsize=(8, 4))
-        plt.suptitle(f'RRWM Matching Result')
-        ax1 = plt.subplot(1, 2, 1)
-        plt.title('Subgraph 1')
-        plt.gca().margins(0.4)
-        nx.draw_networkx(G1, pos=pos1, node_color=color1)
-        ax2 = plt.subplot(1, 2, 2)
-        plt.title('Graph 2')
-        nx.draw_networkx(G2, pos=pos2, node_color=color2)
-        for i in range(num_nodes1):
-            j = torch.argmax(X[i]).item()
-            con = ConnectionPatch(xyA=pos1[i], xyB=pos2[j], coordsA="data", coordsB="data",
-                                axesA=ax1, axesB=ax2, color="green" if X_gt[i,j] == 1 else "red")
-            plt.gca().add_artist(con)
         plt.show()
+        
+        # plt.figure(figsize=(8, 4))
+        # plt.suptitle(f'RRWM Matching Result')
+        # ax1 = plt.subplot(1, 2, 1)
+        # plt.title('Subgraph 1')
+        # plt.gca().margins(0.4)
+        # nx.draw_networkx(G1, pos=pos1, node_color=color1)
+        # ax2 = plt.subplot(1, 2, 2)
+        # plt.title('Graph 2')
+        # nx.draw_networkx(G2, pos=pos2, node_color=color2)
+        # for i in range(num_nodes1):
+        #     j = torch.argmax(X[i]).item()
+        #     con = ConnectionPatch(xyA=pos1[i], xyB=pos2[j], coordsA="data", coordsB="data",
+        #                         axesA=ax1, axesB=ax2, color="green" if X_gt[i,j] == 1 else "red")
+        #     plt.gca().add_artist(con)
+        # plt.show()
 
 
 if __name__ == "__main__":
