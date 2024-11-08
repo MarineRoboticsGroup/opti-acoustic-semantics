@@ -30,23 +30,23 @@ class GraphMatcher:
     
     def __init__(self) -> None:
         assert torch.cuda.is_available()
-        with open("zpool_2obj2loop_part1_uncertainties.txt", 'rb') as binary_file:
+        with open("zpool_day1_part1_uncertainties.txt", 'rb') as binary_file:
             buf = BytesIO(binary_file.read())
             bytes = buf.getvalue()
             self.fullgraph = ObjectsVectorUncertainty()
             self.fullgraph.deserialize(bytes)
             # self.subgraph = self.fullgraph
-        with open("zpool_2obj2loop_part2_uncertainties.txt", 'rb') as binary_file:
+        with open("zpool_day1_part2_uncertainties.txt", 'rb') as binary_file:
             buf = BytesIO(binary_file.read())
             bytes = buf.getvalue()
             self.subgraph = ObjectsVectorUncertainty()
             self.subgraph.deserialize(bytes)
-        with open("zpool_2obj2loop_part1_colors_uncertainties.txt", 'rb') as binary_file:
+        with open("zpool_day1_part1_colors_uncertainties.txt", 'rb') as binary_file:
             buf = BytesIO(binary_file.read())
             bytes = buf.getvalue()
             self.fullgraph_lm_colors = Marker()
             self.fullgraph_lm_colors.deserialize(bytes)
-        with open("zpool_2obj2loop_part2_colors_uncertainties.txt", 'rb') as binary_file:
+        with open("zpool_day1_part2_colors_uncertainties.txt", 'rb') as binary_file:
             buf = BytesIO(binary_file.read())
             bytes = buf.getvalue()
             self.subgraph_lm_colors = Marker()
@@ -180,7 +180,7 @@ class GraphMatcher:
         # selected = [7, 8, 9, 10, 11]
         
         # 2obj2loop
-        selected = [0,1,2,3]
+        selected = [0,1,2,3,4]
         
         # 2obj1loop
         # selected = [8,9,10,11,12]
@@ -409,10 +409,10 @@ class GraphMatcher:
     
     def match_pcd(self, subgraph: ObjectsVectorUncertainty, fullgraph: ObjectsVectorUncertainty, num_iterations=5, threshold=1e-5) -> None:
         # day 1
-        # selected = [7, 8, 9, 10, 11]
+        selected = [10, 11]
         
         # 2obj2loop
-        selected = [0,1,2,3]
+        #selected = [0,1,2,3,4]
         
         # 2obj1loop
         # selected = [8,9,10,11,12]
@@ -429,14 +429,14 @@ class GraphMatcher:
         num_nodes2 = len(fullgraph_nodes)
 
         # For 2obj2loop and KITTI
-        X_gt = torch.eye(num_nodes2)[selected, :]
+        # X_gt = torch.eye(num_nodes2)[selected, :]
 
         # for day 1
-        # X_gt = torch.tensor([[1., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.],
-        #                        [0., 0., 1., 0., 0., 0., 0., 0., 0., 0., 0., 0.],
-        #                        [0., 1., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.],
-        #                        [0., 0., 0., 0., 1., 0., 0., 0., 0., 0., 0., 0.],
-        #                        [0., 0., 0., 1., 0., 0., 0., 0., 0., 0., 0., 0.]])[5 - len(selected):]
+        X_gt = torch.tensor([[1., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.],
+                               [0., 0., 1., 0., 0., 0., 0., 0., 0., 0., 0., 0.],
+                               [0., 1., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.],
+                               [0., 0., 0., 0., 1., 0., 0., 0., 0., 0., 0., 0.],
+                               [0., 0., 0., 1., 0., 0., 0., 0., 0., 0., 0., 0.]])[5 - len(selected):]
 
         # for 2obj1loop
         # X_gt = torch.tensor([[0., 0., 0., 0., 1., 0., 0., 0., 0., 0., 0., 0., 0., 0.],

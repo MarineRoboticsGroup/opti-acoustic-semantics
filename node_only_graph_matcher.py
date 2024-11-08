@@ -30,23 +30,23 @@ class GraphMatcher:
     
     def __init__(self) -> None:
         assert torch.cuda.is_available()
-        with open("zpool_2obj2loop_part1_uncertainties.txt", 'rb') as binary_file:
+        with open("kitti_seq05_uncertainties.txt", 'rb') as binary_file:
             buf = BytesIO(binary_file.read())
             bytes = buf.getvalue()
             self.fullgraph = ObjectsVectorUncertainty()
             self.fullgraph.deserialize(bytes)
             # self.subgraph = self.fullgraph
-        with open("zpool_2obj2loop_part2_uncertainties.txt", 'rb') as binary_file:
+        with open("kitti_seq05_uncertainties.txt", 'rb') as binary_file:
             buf = BytesIO(binary_file.read())
             bytes = buf.getvalue()
             self.subgraph = ObjectsVectorUncertainty()
             self.subgraph.deserialize(bytes)
-        with open("zpool_2obj2loop_part1_colors_uncertainties.txt", 'rb') as binary_file:
+        with open("kitti_seq05_colors_uncertainties.txt", 'rb') as binary_file:
             buf = BytesIO(binary_file.read())
             bytes = buf.getvalue()
             self.fullgraph_lm_colors = Marker()
             self.fullgraph_lm_colors.deserialize(bytes)
-        with open("zpool_2obj2loop_part2_colors_uncertainties.txt", 'rb') as binary_file:
+        with open("kitti_seq05_colors_uncertainties.txt", 'rb') as binary_file:
             buf = BytesIO(binary_file.read())
             bytes = buf.getvalue()
             self.subgraph_lm_colors = Marker()
@@ -177,15 +177,15 @@ class GraphMatcher:
         Run graph matching and publish result to /matching topic
         """
         # day 1
-        # selected = [7, 8, 9, 10, 11]
+        # selected = [7,8,9,10,11]
         
         # 2obj2loop
-        selected = [0,1,2,3]
+        # selected = [0,1,2,3,4]
         
         # 2obj1loop
         # selected = [8,9,10,11,12]
         # 540-560
-        # selected = [540, 541, 542, 543, 544, 545, 546, 547, 548, 549, 550, 551, 552, 553, 554, 555, 556, 557, 558, 559]
+        selected = [540, 541, 542, 543, 544, 545, 546, 547, 548, 549, 550, 551, 552, 553, 554, 555, 556, 557, 558, 559]
         # 580-600
         # selected = [580, 581, 582, 583, 584, 585, 586, 587, 588, 589, 590, 591, 592, 593, 594, 595, 596, 597, 598, 599]
         # Extract nodes and edges from subgraph and fullgraph
@@ -299,9 +299,9 @@ class GraphMatcher:
         t1 = time.time()
         print(f"Time taken to build affinity matrix: {t1 - t0:.6f} s")
 
-        plt.figure(figsize=(4, 4))
-        plt.title(f'Affinity Matrix')
-        plt.imshow(K.numpy(), cmap='Blues')
+        # plt.figure(figsize=(4, 4))
+        # plt.title(f'Affinity Matrix')
+        # plt.imshow(K.numpy(), cmap='Blues')
 
         # print("A1:\n", A1)
         # print("A2:\n", A2)
@@ -331,26 +331,26 @@ class GraphMatcher:
         # plt.show()
 
         # Create a figure and axis for the plot
-        fig, ax = plt.subplots()
-        cax = ax.matshow(intermediate_results[0], cmap='Blues')
-        fig.colorbar(cax)
+        # fig, ax = plt.subplots()
+        # cax = ax.matshow(intermediate_results[0], cmap='Blues')
+        # fig.colorbar(cax)
 
-        def update(frame):
-            """
-            Update function for the animation.
-            """
-            cax.set_data(intermediate_results[frame])
-            ax.set_title(f"RRWM Iteration {frame + 1}")
-            return cax,
+        # def update(frame):
+        #     """
+        #     Update function for the animation.
+        #     """
+        #     cax.set_data(intermediate_results[frame])
+        #     ax.set_title(f"RRWM Iteration {frame + 1}")
+        #     return cax,
 
-        # Create the animation
-        anim = FuncAnimation(fig, update, frames=len(intermediate_results), blit=False)
+        # # Create the animation
+        # anim = FuncAnimation(fig, update, frames=len(intermediate_results), blit=False)
 
-        # To display the animation in a Jupyter Notebook
-        plt.show()
+        # # To display the animation in a Jupyter Notebook
+        # plt.show()
 
-        # If you want to save the animation, use the following line (uncomment if needed)
-        anim.save('rrwm_animation.mp4', writer='ffmpeg')
+        # # If you want to save the animation, use the following line (uncomment if needed)
+        # anim.save('rrwm_animation.mp4', writer='ffmpeg')
                 
 
         X = pygm.hungarian(X)
