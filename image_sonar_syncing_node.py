@@ -116,7 +116,7 @@ def ping_to_range(msg: OculusPing, angle: float) -> float:
         #       cloud_msg.points.append(pt)
 
 
-def image_sonar_callback(image_msg, sonar_msg):
+def image_sonar_callback(image_msg):
     print("Hit callback!")
     # global extractor, saliency_extractor, args, bridge, CAM_FOV, CAM_TO_SONAR_TF, SONAR_TO_CAM_TF
       # print(data.encoding)
@@ -167,7 +167,7 @@ def image_sonar_callback(image_msg, sonar_msg):
     for i, pos_cent in enumerate(pos_centroids):
         bearing = pos_cent[0] * CAM_FOV - CAM_FOV/2
         print(bearing) 
-        range = ping_to_range(sonar_msg, bearing)
+        range = 2#ping_to_range(sonar_msg, bearing)
         print(range)
 
         if range:
@@ -260,7 +260,7 @@ if __name__ == "__main__":
     parser.add_argument('--low_res_saliency_maps', default='True', type=str2bool, help="using low resolution saliency "
                                                                                        "maps. Reduces RAM needs.")
     parser.add_argument('--cam_fov', default=80, type=int, help="Camera field of view (horizontal) in degrees.")
-    parser.add_argument('--cam_calibration_path', default='/home/jungseok/Downloads/bluerov_1080_cal.yaml', type=str, help="Path to camera calibration yaml file.")
+    parser.add_argument('--cam_calibration_path', default='/home/singhk/data/building_1_pool/bluerov_1080_cal.yaml', type=str, help="Path to camera calibration yaml file.")
     parser.add_argument('--obj_removal_thresh', default=0.9, type=float, help="Cosine similarity threshold for removing objects from cosegmentation.")
     args = parser.parse_args()
     
@@ -305,7 +305,7 @@ if __name__ == "__main__":
     image_sub = message_filters.Subscriber(image_topic, RosImage)
     sonar_sub = message_filters.Subscriber(sonar_topic, OculusPing)
 
-    ts = message_filters.ApproximateTimeSynchronizer([image_sub, sonar_sub], 100, 100, allow_headerless=False)
+    ts = message_filters.ApproximateTimeSynchronizer([image_sub], 100, 100, allow_headerless=False)
     ts.registerCallback(image_sonar_callback)
     
     tfBuffer = tf2_ros.Buffer()
