@@ -30,23 +30,23 @@ class GraphMatcher:
     
     def __init__(self) -> None:
         assert torch.cuda.is_available()
-        with open("zpool_day1_part1_uncertainties.txt", 'rb') as binary_file:
+        with open("kitti_seq05_uncertainties.txt", 'rb') as binary_file:
             buf = BytesIO(binary_file.read())
             bytes = buf.getvalue()
             self.fullgraph = ObjectsVectorUncertainty()
             self.fullgraph.deserialize(bytes)
             # self.subgraph = self.fullgraph
-        with open("zpool_day1_part2_uncertainties.txt", 'rb') as binary_file:
+        with open("kitti_seq05_uncertainties.txt", 'rb') as binary_file:
             buf = BytesIO(binary_file.read())
             bytes = buf.getvalue()
             self.subgraph = ObjectsVectorUncertainty()
             self.subgraph.deserialize(bytes)
-        with open("zpool_day1_part1_colors_uncertainties.txt", 'rb') as binary_file:
+        with open("kitti_seq05_colors_uncertainties.txt", 'rb') as binary_file:
             buf = BytesIO(binary_file.read())
             bytes = buf.getvalue()
             self.fullgraph_lm_colors = Marker()
             self.fullgraph_lm_colors.deserialize(bytes)
-        with open("zpool_day1_part2_colors_uncertainties.txt", 'rb') as binary_file:
+        with open("kitti_seq05_colors_uncertainties.txt", 'rb') as binary_file:
             buf = BytesIO(binary_file.read())
             bytes = buf.getvalue()
             self.subgraph_lm_colors = Marker()
@@ -172,180 +172,6 @@ class GraphMatcher:
         distances = distances.unsqueeze(0)
         return distances
     
-    def match(self, subgraph: ObjectsVectorUncertainty, fullgraph: ObjectsVectorUncertainty) -> None:
-        """
-        Run graph matching and publish result to /matching topic
-        """
-        # day 1
-        # selected = [7, 8, 9, 10, 11]
-        
-        # 2obj2loop
-        selected = [0,1,2,3,4]
-        
-        # 2obj1loop
-        # selected = [8,9,10,11,12]
-        # 540-560
-        # selected = [540, 541, 542, 543, 544, 545, 546, 547, 548, 549, 550, 551, 552, 553, 554, 555, 556, 557, 558, 559]
-        # 580-600
-        # selected = [580, 581, 582, 583, 584, 585, 586, 587, 588, 589, 590, 591, 592, 593, 594, 595, 596, 597, 598, 599]
-        # Extract nodes and edges from subgraph and fullgraph
-
-        # Latent centroids are to be used as node features
-        # Super hacky way to store uncertainty in the last dimension of the node features since it needs to be a tensor
-        fullgraph_nodes = np.array([list(obj.latent_centroid) +  list(np.array([obj.geometric_centroid.x, obj.geometric_centroid.y, obj.geometric_centroid.z])) + [obj.uncertainty] for obj in fullgraph.objects])
-        subgraph_nodes = np.array([list(obj.latent_centroid) + list(np.array([obj.geometric_centroid.x, obj.geometric_centroid.y, obj.geometric_centroid.z])) + [obj.uncertainty] for obj in subgraph.objects])[selected]
-
-        # subgraph_nodes = np.array([list(obj.latent_centroid) for obj in subgraph.objects])[selected]
-        # fullgraph_nodes = np.array([list(obj.latent_centroid) for obj in fullgraph.objects])
-
-        subgraph_nodes = torch.tensor(subgraph_nodes)
-        fullgraph_nodes = torch.tensor(fullgraph_nodes)
-        
-        # Geometric centroids are to be used as node positions, which are used to calculate edge features as Euclidean distances
-        self.subgraph_points = np.array([obj.geometric_centroid for obj in subgraph.objects])[selected]
-        self.fullgraph_points = np.array([obj.geometric_centroid for obj in fullgraph.objects])
-
-        self.subgraph_points = np.array([[point.x, point.y, point.z] for point in self.subgraph_points])
-        self.fullgraph_points = np.array([[point.x, point.y, point.z] for point in self.fullgraph_points])
-        
-        colors = self.fullgraph_lm_colors.colors
-        colors_fullgraph = np.array([(color.r, color.g, color.b, color.a) for color in colors])
-        
-        colors = self.subgraph_lm_colors.colors
-        colors_subgraph = np.array([(color.r, color.g, color.b, color.a) for color in colors])[selected]    
-        
-        # Create adjacency matrices
-        t0 = time.time()
-        A1 = self.create_adjacency_matrix(self.subgraph_points, threshold=1)
-        A2 = self.create_adjacency_matrix(self.fullgraph_points, threshold=1)
-        t1 = time.time()
-        
-        print(f"Time taken to create adjacency matrices: {t1 - t0:.6f} s")
-
-        # Number of nodes
-        num_nodes1 = len(subgraph_nodes)
-        num_nodes2 = len(fullgraph_nodes)
-        n1 = torch.tensor([num_nodes1])
-        n2 = torch.tensor([num_nodes2])
-
-        # Convert dense adjacency matrices to sparse representations
-        conn1, edge1 = pygm.utils.dense_to_sparse(A1)
-        conn2, edge2 = pygm.utils.dense_to_sparse(A2)
-
-        # Visualize the subgraph and fullgraph
-        # sub
-        G1 = nx.from_numpy_array(A1.numpy())
-        pos1 = nx.spring_layout(G1)
-        
-        # For 2obj2loop and KITTI
-        X_gt = torch.eye(num_nodes2)[selected, :]
-
-        # for day 1
-        # X_gt = torch.tensor([[1., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.],
-        #                        [0., 0., 1., 0., 0., 0., 0., 0., 0., 0., 0., 0.],
-        #                        [0., 1., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.],
-        #                        [0., 0., 0., 0., 1., 0., 0., 0., 0., 0., 0., 0.],
-        #                        [0., 0., 0., 1., 0., 0., 0., 0., 0., 0., 0., 0.]])[5 - len(selected):]
-
-        # for 2obj1loop
-        # X_gt = torch.tensor([[0., 0., 0., 0., 1., 0., 0., 0., 0., 0., 0., 0., 0., 0.],
-        #                       [0., 0., 0., 1., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.],
-        #                       [0., 0., 1., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.],
-        #                       [0., 1., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.],
-        #                       [1., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.]])[5 - len(selected):]
-
-
-        # for 1obj1loop
-        # X_gt = torch.tensor([[0., 0., 0., 0., 1.],
-        #                      [1., 0., 0., 0., 0.],
-        #                      [0., 0., 0., 1., 0.],
-        #                      [0., 0., 1., 0., 0.],
-        #                      [0., 1., 0., 0., 0.]])[5 - len(selected):]
-
-
-        # Define the affinity function
-        gaussian_aff = functools.partial(pygm.utils.gaussian_aff_fn, sigma=.1)
-
-        
-        # Build affinity matrix      
-        # print(conn1.shape, edge1.shape, conn2.shape, edge2.shape)
-        t0 = time.time()
-        K = pygm.utils.build_aff_mat(subgraph_nodes, edge1, conn1, fullgraph_nodes, edge2, conn2, None, None, None, None, node_aff_fn=self.cos_aff_fn_weighted, edge_aff_fn=gaussian_aff)
-        # K = pygm.utils.build_aff_mat(None, edge1, conn1, None, edge2, conn2, None, None, None, None, node_aff_fn=cos_aff_fn_weighted, edge_aff_fn=gaussian_aff)
-        # K = pygm.utils.build_aff_mat(subgraph_nodes, None, conn1, fullgraph_nodes, None, conn2, None, None, None, None, node_aff_fn=cos_aff_fn_weighted, edge_aff_fn=gaussian_aff)
-        t1 = time.time()
-        print(f"Time taken to build affinity matrix: {t1 - t0:.6f} s")
-
-        plt.figure(figsize=(4, 4))
-        plt.title(f'Affinity Matrix')
-        plt.imshow(K.numpy(), cmap='Blues')
-
-
-        # with torch.set_grad_enabled(False):
-        #     X = pygm.ngm(K, n1max=float(num_nodes1), n2max=float(num_nodes2), pretrain='voc')
-        #     X = pygm.hungarian(X)
-        t0 = time.time()
-        intermediate_results = pygm.rrwm(K.float(), n1, n2, max_iter=20)
-        X = intermediate_results[-1]
-        t1 = time.time()
-        
-        print(f"Time taken: {t1 - t0:.6f} s")
-        
-        # plt.figure(figsize=(8, 4))
-        # plt.subplot(1, 2, 1)
-        # plt.title('RRWM Soft Matching Matrix')
-        # plt.imshow(X.numpy(), cmap='Blues')
-        # plt.show()
-
-        # Create a figure and axis for the plot
-        fig, ax = plt.subplots()
-        cax = ax.matshow(intermediate_results[0], cmap='Blues')
-        fig.colorbar(cax)
-
-        def update(frame):
-            """
-            Update function for the animation.
-            """
-            cax.set_data(intermediate_results[frame])
-            ax.set_title(f"RRWM Iteration {frame + 1}")
-            return cax,
-
-        # Create the animation
-        anim = FuncAnimation(fig, update, frames=len(intermediate_results), blit=False)
-
-        # To display the animation in a Jupyter Notebook
-        plt.show()
-
-        # If you want to save the animation, use the following line (uncomment if needed)
-        anim.save('rrwm_animation.mp4', writer='ffmpeg')
-                
-
-        X = pygm.hungarian(X)
-        print(X)
-        plt.figure(figsize=(8, 4))
-        plt.subplot(1, 2, 1)
-        plt.title(f'RRWM Matching Matrix (acc={(X * X_gt).sum()/ X_gt.sum():.2f})')
-        plt.imshow(X.numpy(), cmap='Blues')
-        plt.subplot(1, 2, 2)
-        plt.title('Ground Truth Matching Matrix')
-        plt.imshow(X_gt.numpy(), cmap='Blues')
-        plt.show()
-        
-        # plt.figure(figsize=(8, 4))
-        # plt.suptitle(f'RRWM Matching Result')
-        # ax1 = plt.subplot(1, 2, 1)
-        # plt.title('Subgraph 1')
-        # plt.gca().margins(0.4)
-        # nx.draw_networkx(G1, pos=pos1, node_color=color1)
-        # ax2 = plt.subplot(1, 2, 2)
-        # plt.title('Graph 2')
-        # nx.draw_networkx(G2, pos=pos2, node_color=color2)
-        # for i in range(num_nodes1):
-        #     j = torch.argmax(X[i]).item()
-        #     con = ConnectionPatch(xyA=pos1[i], xyB=pos2[j], coordsA="data", coordsB="data",
-        #                         axesA=ax1, axesB=ax2, color="green" if X_gt[i,j] == 1 else "red")
-        #     plt.gca().add_artist(con)
-        # plt.show()
     
     def cos_and_euc_point_cloud_distance(self, point1, point2):
         """
@@ -378,11 +204,11 @@ class GraphMatcher:
         euclidean_dist = torch.nn.functional.pairwise_distance(points1.unsqueeze(0), points2.unsqueeze(0), p=2)
 
         # Scale Euclidean distance to be in the same range as cosine similarity (0 to 1)
-        euclidean_dist = euclidean_dist / torch.max(euclidean_dist)
+        euclidean_dist = 1 - euclidean_dist / torch.max(euclidean_dist)
 
         # Combine the weighted cosine similarity and scaled Euclidean distance
         weighted_cosine_sim_and_euclidean_dist = weighted_cosine_sim + euclidean_dist
-        print(weighted_cosine_sim, euclidean_dist, weighted_cosine_sim_and_euclidean_dist)
+        # print(weighted_cosine_sim, euclidean_dist, weighted_cosine_sim_and_euclidean_dist)
 
         return weighted_cosine_sim_and_euclidean_dist
         
@@ -409,18 +235,25 @@ class GraphMatcher:
     
     def match_pcd(self, subgraph: ObjectsVectorUncertainty, fullgraph: ObjectsVectorUncertainty, num_iterations=5, threshold=1e-5) -> None:
         # day 1
-        selected = [10, 11]
+        # selected = [10, 11]
         
         # 2obj2loop
         #selected = [0,1,2,3,4]
         
         # 2obj1loop
         # selected = [8,9,10,11,12]
-        # 540-560
-        # selected = [540, 541, 542, 543, 544, 545, 546, 547, 548, 549, 550, 551, 552, 553, 554, 555, 556, 557, 558, 559]
-        # 580-600
-        # selected = [580, 581, 582, 583, 584, 585, 586, 587, 588, 589, 590, 591, 592, 593, 594, 595, 596, 597, 598, 599]
         
+        # KITTI seq 05
+        # location 1: 380-400
+        # selected = [380, 381, 382, 383, 384, 385, 386, 387, 388, 389, 390, 391, 392, 393, 394, 395, 396, 397, 398, 399]
+        # location 2: 430-450
+        # selected = [430, 431, 432, 433, 434, 435, 436, 437, 438, 439, 440, 441, 442, 443, 444, 445, 446, 447, 448, 449]
+        # location 3: 540-560
+        # selected = [540, 541, 542, 543, 544, 545, 546, 547, 548, 549, 550, 551, 552, 553, 554, 555, 556, 557, 558, 559]
+        # location 4: 580-600
+        selected = [580, 581, 582, 583, 584, 585, 586, 587, 588, 589, 590, 591, 592, 593, 594, 595, 596, 597, 598, 599]
+
+
         # Latent centroids are to be used as node features
         # Super hacky way to store uncertainty in the last dimension of the node features since it needs to be a tensor
         fullgraph_nodes = np.array([list(obj.latent_centroid) +  list(np.array([obj.geometric_centroid.x, obj.geometric_centroid.y, obj.geometric_centroid.z])) + [obj.uncertainty] for obj in fullgraph.objects])
@@ -429,14 +262,14 @@ class GraphMatcher:
         num_nodes2 = len(fullgraph_nodes)
 
         # For 2obj2loop and KITTI
-        # X_gt = torch.eye(num_nodes2)[selected, :]
+        X_gt = torch.eye(num_nodes2)[selected, :]
 
         # for day 1
-        X_gt = torch.tensor([[1., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.],
-                               [0., 0., 1., 0., 0., 0., 0., 0., 0., 0., 0., 0.],
-                               [0., 1., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.],
-                               [0., 0., 0., 0., 1., 0., 0., 0., 0., 0., 0., 0.],
-                               [0., 0., 0., 1., 0., 0., 0., 0., 0., 0., 0., 0.]])[5 - len(selected):]
+        # X_gt = torch.tensor([[1., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.],
+        #                        [0., 0., 1., 0., 0., 0., 0., 0., 0., 0., 0., 0.],
+        #                        [0., 1., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.],
+        #                        [0., 0., 0., 0., 1., 0., 0., 0., 0., 0., 0., 0.],
+        #                        [0., 0., 0., 1., 0., 0., 0., 0., 0., 0., 0., 0.]])[5 - len(selected):]
 
         # for 2obj1loop
         # X_gt = torch.tensor([[0., 0., 0., 0., 1., 0., 0., 0., 0., 0., 0., 0., 0., 0.],

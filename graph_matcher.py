@@ -144,23 +144,23 @@ class GraphMatcher:
     
     def __init__(self) -> None:
         assert torch.cuda.is_available()
-        with open("zpool_2obj2loop_part1_uncertainties.txt", 'rb') as binary_file:
+        with open("kitti_seq05_uncertainties.txt", 'rb') as binary_file:
             buf = BytesIO(binary_file.read())
             bytes = buf.getvalue()
             self.fullgraph = ObjectsVectorUncertainty()
             self.fullgraph.deserialize(bytes)
             # self.subgraph = self.fullgraph
-        with open("zpool_2obj2loop_part2_uncertainties.txt", 'rb') as binary_file:
+        with open("kitti_seq05_uncertainties.txt", 'rb') as binary_file:
             buf = BytesIO(binary_file.read())
             bytes = buf.getvalue()
             self.subgraph = ObjectsVectorUncertainty()
             self.subgraph.deserialize(bytes)
-        with open("zpool_2obj2loop_part1_colors_uncertainties.txt", 'rb') as binary_file:
+        with open("kitti_seq05_colors_uncertainties.txt", 'rb') as binary_file:
             buf = BytesIO(binary_file.read())
             bytes = buf.getvalue()
             self.fullgraph_lm_colors = Marker()
             self.fullgraph_lm_colors.deserialize(bytes)
-        with open("zpool_2obj2loop_part2_colors_uncertainties.txt", 'rb') as binary_file:
+        with open("kitti_seq05_colors_uncertainties.txt", 'rb') as binary_file:
             buf = BytesIO(binary_file.read())
             bytes = buf.getvalue()
             self.subgraph_lm_colors = Marker()
@@ -254,9 +254,15 @@ class GraphMatcher:
         
         # 2obj1loop
         # selected = [8,9,10,11,12]
-        # 540-560
+        
+        # KITTI seq 05
+        # location 1: 380-400
+        selected = [380, 381, 382, 383, 384, 385, 386, 387, 388, 389, 390, 391, 392, 393, 394, 395, 396, 397, 398, 399]
+        # location 2: 430-450
+        # selected = [430, 431, 432, 433, 434, 435, 436, 437, 438, 439, 440, 441, 442, 443, 444, 445, 446, 447, 448, 449]
+        # location 3: 540-560
         # selected = [540, 541, 542, 543, 544, 545, 546, 547, 548, 549, 550, 551, 552, 553, 554, 555, 556, 557, 558, 559]
-        # 580-600
+        # location 4: 580-600
         # selected = [580, 581, 582, 583, 584, 585, 586, 587, 588, 589, 590, 591, 592, 593, 594, 595, 596, 597, 598, 599]
         # Extract nodes and edges from subgraph and fullgraph
 
