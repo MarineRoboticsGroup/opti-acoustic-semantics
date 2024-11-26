@@ -42,6 +42,9 @@ def show_similarity_interactive(image_path_a: str, load_size: int = 224, layer: 
     image_batch_a, image_pil_a = extractor.preprocess(image_path_a, load_size)
     descs_a = extractor.extract_descriptors(image_batch_a.to(device), layer, facet, bin, include_cls=True)
     num_patches_a, load_size_a = extractor.num_patches, extractor.load_size
+    
+    # for storing clicked descriptors
+    descs = []
 
     # plot
     fig, axes = plt.subplots(1, 2)
@@ -89,13 +92,14 @@ def show_similarity_interactive(image_path_a: str, load_size: int = 224, layer: 
         curr_similarities = curr_similarities.reshape(num_patches_a)
         axes[1].imshow(curr_similarities.cpu().numpy(), cmap='jet')
         plt.draw()
-
+        
+        descs.append(descs_a[0, 0, raveled_desc_idx_including_cls, :].cpu())
         # get input point from user
         fig.suptitle('Select a point on the left image', fontsize=16)
         plt.draw()
         pts = np.asarray(plt.ginput(1, timeout=-1, mouse_stop=plt.MouseButton.RIGHT, mouse_pop=None))
     plt.close()
-    return descs_a[0, 0, raveled_desc_idx_including_cls, :].cpu().numpy()
+    return descs
 
 
 """ taken from https://stackoverflow.com/questions/15008758/parsing-boolean-values-with-argparse"""
